@@ -55,7 +55,26 @@ Visit http://127.0.0.1:9000/
 Then just start chatting. I will handle the rest.
 
 ---
+## Model Recommendations
 
+AICP-BIO-1 requires a model with **strong coding ability**. The following two are recommended (tested in practice):
+
+| Model | Provider | Notes |
+|---|---|---|
+| `doubao-code-2.0` | Volcano Engine / Aggregator | Strong coding, fast, cheap |
+| `claude-sonnet-4.6` | Anthropic / Aggregator | Top-tier coding, stable reasoning |
+
+⚠️ **Recommended model capability must be ≥ these two.**
+
+Models below this capability level may fail in the following stages:
+
+- **`generate_backend` / `generate_frontend`**: generated code may miss fields or imports
+- **`contract_agent`**: contract extraction may be inaccurate
+- **`main_agent`**: JSON output may be unstable, triggering retries
+- **`aicp_chat`**: sandbox code generation may fail
+
+**Go straight for a top-tier model.** The bottleneck of this system is not token cost — it is "getting it right the first time."
+---
 ## 🧱 Architecture
 
 ```

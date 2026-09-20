@@ -48,6 +48,27 @@ python -m runtime --server
 
 ---
 
+## 模型选择
+
+AICP-BIO-1 需要一个**强代码能力**的模型。推荐以下两个（本人实测）：
+
+| 模型 | Provider | 特点 |
+|---|---|---|
+| `doubao-code-2.0` | 火山引擎 / Aggregator | 代码能力强，速度快，便宜 |
+| `claude-sonnet-4.6` | Anthropic / Aggregator | 代码能力顶级，推理稳定 |
+
+⚠️ **推荐模型能力必须 ≥ 这两个。**
+
+低于这个能力的模型，可能在以下环节出问题：
+
+- **`generate_backend` / `generate_frontend`**：生成代码容易漏字段、漏 import
+- **`contract_agent`**：契约提取不准
+- **`main_agent`**：JSON 输出不稳定，触发重试
+- **`aicp_chat`**：沙箱代码生成容易出错
+
+**建议直接上顶级模型。** 这个系统的瓶颈不在 token 成本，在"一次写对"。
+---
+
 ## 🧱 系统架构
 
 ```
