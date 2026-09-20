@@ -1,0 +1,45 @@
+{
+  "plugin": "builtins/tools/add_experience",
+  "actions": {
+    "execute": {
+      "description": "沉淀经验到经验背包",
+      "params": [
+        {
+          "name": "experience",
+          "required": true,
+          "type": "string",
+          "desc": "经验内容"
+        },
+        {
+          "name": "mode",
+          "required": false,
+          "type": "string",
+          "desc": "append 或 replace，默认 append"
+        }
+      ],
+      "returns": [
+        {
+          "name": "ok",
+          "type": "boolean",
+          "desc": "是否成功"
+        },
+        {
+          "name": "message",
+          "type": "string",
+          "desc": "结果消息"
+        },
+        {
+          "name": "mode",
+          "type": "string",
+          "desc": "使用的模式"
+        },
+        {
+          "name": "size",
+          "type": "number",
+          "desc": "背包大小（字符数）"
+        }
+      ],
+      "pitfalls": "执行失败时返回 ok=false 和 error 字段，而非 message/size；无 action 分发，单一入口"
+    }
+  }
+}

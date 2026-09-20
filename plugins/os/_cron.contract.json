@@ -1,0 +1,243 @@
+{
+  "plugin": "os/_cron",
+  "actions": {
+    "schedule": {
+      "description": "创建定时任务，支持间隔执行和每日定时两种模式",
+      "params": [
+        {
+          "name": "task_id",
+          "required": true,
+          "type": "string",
+          "desc": "任务唯一标识符"
+        },
+        {
+          "name": "target_receiver",
+          "required": true,
+          "type": "string",
+          "desc": "目标插件路由"
+        },
+        {
+          "name": "target_payload",
+          "required": true,
+          "type": "object",
+          "desc": "发送给目标插件的 payload，必须包含 session_id 和 content"
+        },
+        {
+          "name": "interval",
+          "required": false,
+          "type": "number",
+          "desc": "间隔秒数（interval 和 at_time 至少提供一个，同时提供时 at_time 优先）"
+        },
+        {
+          "name": "at_time",
+          "required": false,
+          "type": "string",
+          "desc": "每日定时时间，格式 HH:MM"
+        },
+        {
+          "name": "immediate",
+          "required": false,
+          "type": "boolean",
+          "desc": "是否立即执行第一次，默认 false"
+        },
+        {
+          "name": "persisted",
+          "required": false,
+          "type": "boolean",
+          "desc": "是否持久化，重启后自动恢复，默认 true"
+        }
+      ],
+      "returns": [
+        {
+          "name": "ok",
+          "type": "boolean",
+          "desc": "操作是否成功"
+        },
+        {
+          "name": "task_id",
+          "type": "string",
+          "desc": "任务ID"
+        },
+        {
+          "name": "schedule_mode",
+          "type": "string",
+          "desc": "调度模式：daily 或 interval"
+        },
+        {
+          "name": "interval",
+          "type": "number",
+          "desc": "间隔秒数"
+        },
+        {
+          "name": "at_time",
+          "type": "string",
+          "desc": "每日定时时间"
+        },
+        {
+          "name": "immediate",
+          "type": "boolean",
+          "desc": "是否立即执行"
+        },
+        {
+          "name": "persisted",
+          "type": "boolean",
+          "desc": "是否持久化"
+        },
+        {
+          "name": "target_receiver",
+          "type": "string",
+          "desc": "目标插件路由"
+        }
+      ],
+      "pitfalls": "target_payload 必须包含 content 和 session_id 两个字段；interval 和 at_time 必须至少提供一个；task_id 重复会报错"
+    },
+    "update": {
+      "description": "更新已有任务的配置，更新即时生效无需重启",
+      "params": [
+        {
+          "name": "task_id",
+          "required": true,
+          "type": "string",
+          "desc": "任务唯一标识符"
+        },
+        {
+          "name": "interval",
+          "required": false,
+          "type": "number",
+          "desc": "新的间隔秒数"
+        },
+        {
+          "name": "at_time",
+          "required": false,
+          "type": "string",
+          "desc": "新的每日定时时间，格式 HH:MM"
+        },
+        {
+          "name": "target_receiver",
+          "required": false,
+          "type": "string",
+          "desc": "新的目标插件路由"
+        },
+        {
+          "name": "target_payload",
+          "required": false,
+          "type": "object",
+          "desc": "新的 payload，会与旧 payload 合并，必须包含 content 字段"
+        },
+        {
+          "name": "immediate",
+          "required": false,
+          "type": "boolean",
+          "desc": "是否立即执行一次"
+        },
+        {
+          "name": "persisted",
+          "required": false,
+          "type": "boolean",
+          "desc": "是否持久化，默认 true"
+        }
+      ],
+      "returns": [
+        {
+          "name": "ok",
+          "type": "boolean",
+          "desc": "操作是否成功"
+        },
+        {
+          "name": "task_id",
+          "type": "string",
+          "desc": "任务ID"
+        },
+        {
+          "name": "updated",
+          "type": "object",
+          "desc": "更新后的配置，包含 schedule_mode、interval、at_time、target_receiver、immediate、persisted"
+        }
+      ],
+      "pitfalls": "target_payload 如果传入则必须包含 content 字段；更新会重启任务；persisted=False 会删除持久化记录"
+    },
+    "cancel": {
+      "description": "取消并删除指定的定时任务",
+      "params": [
+        {
+          "name": "task_id",
+          "required": true,
+          "type": "string",
+          "desc": "任务唯一标识符"
+        }
+      ],
+      "returns": [
+        {
+          "name": "ok",
+          "type": "boolean",
+          "desc": "操作是否成功"
+        },
+        {
+          "name": "task_id",
+          "type": "string",
+          "desc": "任务ID"
+        },
+        {
+          "name": "persisted_removed",
+          "type": "boolean",
+          "desc": "持久化记录是否被删除"
+        }
+      ],
+      "pitfalls": "任务不存在时返回 ok=false 和错误信息"
+    },
+    "list": {
+      "description": "列出所有定时任务的状态和配置信息",
+      "params": [],
+      "returns": [
+        {
+          "name": "ok",
+          "type": "boolean",
+          "desc": "操作是否成功"
+        },
+        {
+          "name": "data",
+          "type": "object",
+          "desc": "任务列表数据"
+        },
+        {
+          "name": "data.tasks",
+          "type": "object",
+          "desc": "任务字典，key 为 task_id，包含 running、schedule_mode、interval、at_time、target_receiver、immediate、persisted、payload、task_id"
+        },
+        {
+          "name": "data.total",
+          "type": "number",
+          "desc": "任务总数"
+        },
+        {
+          "name": "data.running",
+          "type": "number",
+          "desc": "运行中的任务数"
+        },
+        {
+          "name": "data.stopped",
+          "type": "number",
+          "desc": "已停止的任务数"
+        }
+      ],
+      "pitfalls": "payload.content 字段超过100字符会被截断并加..."
+    },
+    "restore": {
+      "description": "手动触发从持久化文件恢复所有定时任务",
+      "params": [],
+      "returns": [
+        {
+          "name": "ok",
+          "type": "boolean",
+          "desc": "操作是否成功"
+        },
+        {
+          "name": "restored",
+          "type": "number",
+          "desc": "恢复的任务数量"
+        }
+      ],
+      "pitfalls": "通常在系统重启后自动恢复，一般无需手动调用"
+    }
+  }
+}

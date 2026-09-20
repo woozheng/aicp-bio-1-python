@@ -1,0 +1,99 @@
+{
+  "plugin": "builtins/notify/email_notifier_api",
+  "actions": {
+    "send": {
+      "description": "发送邮件通知",
+      "params": [
+        {
+          "name": "to",
+          "required": true,
+          "type": "string",
+          "desc": "收件人地址，支持字符串或列表"
+        },
+        {
+          "name": "subject",
+          "required": true,
+          "type": "string",
+          "desc": "邮件主题"
+        },
+        {
+          "name": "body",
+          "required": false,
+          "type": "string",
+          "desc": "邮件正文内容"
+        },
+        {
+          "name": "is_html",
+          "required": false,
+          "type": "boolean",
+          "desc": "是否以 HTML 格式发送"
+        }
+      ],
+      "returns": [
+        {
+          "name": "ok",
+          "type": "boolean",
+          "desc": "是否发送成功"
+        },
+        {
+          "name": "error",
+          "type": "string",
+          "desc": "错误信息（失败时返回）"
+        },
+        {
+          "name": "data.sent",
+          "type": "boolean",
+          "desc": "是否已发送"
+        },
+        {
+          "name": "data.to",
+          "type": "string",
+          "desc": "收件人地址"
+        },
+        {
+          "name": "data.subject",
+          "type": "string",
+          "desc": "邮件主题"
+        }
+      ],
+      "pitfalls": "依赖 data/smart_timer/config.json 中的 SMTP 配置，配置缺失会返回错误"
+    },
+    "test_config": {
+      "description": "测试 SMTP 配置是否有效",
+      "params": [],
+      "returns": [
+        {
+          "name": "ok",
+          "type": "boolean",
+          "desc": "配置是否有效"
+        },
+        {
+          "name": "error",
+          "type": "string",
+          "desc": "错误信息（失败时返回）"
+        },
+        {
+          "name": "data.host",
+          "type": "string",
+          "desc": "SMTP 服务器地址"
+        },
+        {
+          "name": "data.port",
+          "type": "number",
+          "desc": "SMTP 端口"
+        },
+        {
+          "name": "data.user",
+          "type": "string",
+          "desc": "SMTP 用户名"
+        },
+        {
+          "name": "data.use_ssl",
+          "type": "boolean",
+          "desc": "是否使用 SSL"
+        }
+      ],
+      "pitfalls": "只验证配置读取，不会实际发送邮件；依赖 data/smart_timer/config.json 配置文件"
+    }
+  }
+}

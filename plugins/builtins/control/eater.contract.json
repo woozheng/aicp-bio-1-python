@@ -1,0 +1,413 @@
+{
+  "plugin": "builtins/control/eater",
+  "verified": false,
+  "verified_at": null,
+  "actions": {
+    "scan": {
+      "description": "扫描 Python 库，提取所有可调用函数及其签名",
+      "params": [
+        {
+          "name": "action",
+          "required": false,
+          "type": "string",
+          "desc": "操作类型，默认 scan"
+        },
+        {
+          "name": "library",
+          "required": true,
+          "type": "string",
+          "desc": "Python 库名称，不存在会自动安装"
+        }
+      ],
+      "returns": [
+        {
+          "name": "library",
+          "type": "string",
+          "desc": "库名"
+        },
+        {
+          "name": "total",
+          "type": "number",
+          "desc": "函数总数"
+        },
+        {
+          "name": "functions",
+          "type": "array",
+          "desc": "函数列表（最多500个），每个含 module/name/params/doc"
+        },
+        {
+          "name": "error",
+          "type": "string",
+          "desc": "错误信息（失败时）"
+        }
+      ],
+      "notes": "未安装的库会自动通过 pip 安装",
+      "pitfalls": "安装超时120秒；大型库可能只返回前500个函数"
+    },
+    "call": {
+      "description": "调用 Python 库中指定的函数",
+      "params": [
+        {
+          "name": "library",
+          "required": true,
+          "type": "string",
+          "desc": "Python 库名"
+        },
+        {
+          "name": "module",
+          "required": false,
+          "type": "string",
+          "desc": "子模块名（可选）"
+        },
+        {
+          "name": "function",
+          "required": true,
+          "type": "string",
+          "desc": "函数名"
+        },
+        {
+          "name": "args",
+          "required": false,
+          "type": "object",
+          "desc": "函数参数字典，默认 {}"
+        }
+      ],
+      "returns": [
+        {
+          "name": "result",
+          "type": "string",
+          "desc": "函数返回值的字符串形式（最多5000字符）"
+        },
+        {
+          "name": "library",
+          "type": "string",
+          "desc": "库名"
+        },
+        {
+          "name": "function",
+          "type": "string",
+          "desc": "函数名"
+        },
+        {
+          "name": "error",
+          "type": "string",
+          "desc": "错误信息（失败时）"
+        }
+      ],
+      "notes": "结果强制转字符串并截断为5000字符",
+      "pitfalls": "同步调用，长耗时函数会阻塞；异常时仅返回错误字符串"
+    },
+    "eat": {
+      "description": "吞噬 Python 库：自动生成 AICP 插件文件并写入能力索引",
+      "params": [
+        {
+          "name": "library",
+          "required": true,
+          "type": "string",
+          "desc": "Python 库名"
+        }
+      ],
+      "returns": [
+        {
+          "name": "ok",
+          "type": "boolean",
+          "desc": "是否成功"
+        },
+        {
+          "name": "library",
+          "type": "string",
+          "desc": "库名"
+        },
+        {
+          "name": "plugin_file",
+          "type": "string",
+          "desc": "生成的插件文件路径"
+        },
+        {
+          "name": "total",
+          "type": "number",
+          "desc": "函数总数"
+        },
+        {
+          "name": "route",
+          "type": "string",
+          "desc": "插件 API 路由"
+        },
+        {
+          "name": "error",
+          "type": "string",
+          "desc": "错误信息（失败时）"
+        }
+      ],
+      "notes": "生成的插件放在 plugins/lib/ 目录下",
+      "pitfalls": "生成的插件代码是单行压缩形式；能力索引写入 data/capability_index.json"
+    },
+    "hermes_install": {
+      "description": "安装 Hermes 插件（从 git 仓库或本地路径），生成适配器并写入能力索引",
+      "params": [
+        {
+          "name": "source",
+          "required": true,
+          "type": "string",
+          "desc": "git 仓库 URL 或本地路径"
+        },
+        {
+          "name": "name",
+          "required": false,
+          "type": "string",
+          "desc": "插件名称，默认从 source 自动推导"
+        }
+      ],
+      "returns": [
+        {
+          "name": "ok",
+          "type": "boolean",
+          "desc": "是否成功"
+        },
+        {
+          "name": "plugin",
+          "type": "string",
+          "desc": "插件名"
+        },
+        {
+          "name": "path",
+          "type": "string",
+          "desc": "插件安装路径"
+        },
+        {
+          "name": "manifest",
+          "type": "object",
+          "desc": "Hermes 插件 manifest 内容（可能为 null）"
+        },
+        {
+          "name": "error",
+          "type": "string",
+          "desc": "错误信息（失败时）"
+        }
+      ],
+      "notes": "支持 git clone 和本地目录/文件拷贝两种方式",
+      "pitfalls": "git clone 超时60秒；无 manifest 时仍安装但不生成适配器"
+    },
+    "hermes_list": {
+      "description": "列出已安装的所有 Hermes 插件",
+      "params": [],
+      "returns": [
+        {
+          "name": "plugins",
+          "type": "array",
+          "desc": "插件列表，每个含 name 和 manifest"
+        }
+      ],
+      "notes": "扫描 hermes_plugins/ 目录",
+      "pitfalls": "目录不存在时返回空数组"
+    },
+    "cli_scan": {
+      "description": "扫描 CLI 命令，解析 --help 输出提取参数",
+      "params": [
+        {
+          "name": "command",
+          "required": true,
+          "type": "string",
+          "desc": "CLI 命令名"
+        }
+      ],
+      "returns": [
+        {
+          "name": "command",
+          "type": "string",
+          "desc": "命令名"
+        },
+        {
+          "name": "params",
+          "type": "array",
+          "desc": "解析出的参数列表（flag + desc），最多50个"
+        },
+        {
+          "name": "help",
+          "type": "string",
+          "desc": "原始 --help 输出（最多2000字符）"
+        },
+        {
+          "name": "error",
+          "type": "string",
+          "desc": "错误信息（失败时）"
+        }
+      ],
+      "notes": "通过执行 command --help 解析",
+      "pitfalls": "help 输出超时10秒；仅支持标准 -/-- 格式参数"
+    },
+    "cli_call": {
+      "description": "执行 CLI 命令并返回输出",
+      "params": [
+        {
+          "name": "command",
+          "required": true,
+          "type": "string",
+          "desc": "CLI 命令名"
+        },
+        {
+          "name": "args",
+          "required": false,
+          "type": "array",
+          "desc": "命令参数列表，默认 []"
+        },
+        {
+          "name": "stdin",
+          "required": false,
+          "type": "string",
+          "desc": "标准输入内容，默认空字符串"
+        }
+      ],
+      "returns": [
+        {
+          "name": "stdout",
+          "type": "string",
+          "desc": "标准输出（最多5000字符）"
+        },
+        {
+          "name": "stderr",
+          "type": "string",
+          "desc": "标准错误（最多2000字符）"
+        },
+        {
+          "name": "returncode",
+          "type": "number",
+          "desc": "退出码"
+        },
+        {
+          "name": "error",
+          "type": "string",
+          "desc": "错误信息（失败时）"
+        }
+      ],
+      "notes": "同步执行，超时120秒",
+      "pitfalls": "输出会截断；命令未找到或超时返回 error"
+    },
+    "cli_eat": {
+      "description": "吞噬 CLI 命令：自动生成 AICP 插件文件并写入能力索引",
+      "params": [
+        {
+          "name": "command",
+          "required": true,
+          "type": "string",
+          "desc": "CLI 命令名"
+        }
+      ],
+      "returns": [
+        {
+          "name": "ok",
+          "type": "boolean",
+          "desc": "是否成功"
+        },
+        {
+          "name": "command",
+          "type": "string",
+          "desc": "命令名"
+        },
+        {
+          "name": "plugin_file",
+          "type": "string",
+          "desc": "生成的插件文件路径"
+        },
+        {
+          "name": "route",
+          "type": "string",
+          "desc": "插件 API 路由"
+        },
+        {
+          "name": "error",
+          "type": "string",
+          "desc": "错误信息（失败时）"
+        }
+      ],
+      "notes": "生成的插件放在 plugins/lib/cli_<command>.py",
+      "pitfalls": "不预先检查命令是否存在，直接生成插件"
+    },
+    "to_openai": {
+      "description": "将 Python 库转换为 OpenAI Function Calling Schema 格式",
+      "params": [
+        {
+          "name": "library",
+          "required": true,
+          "type": "string",
+          "desc": "Python 库名"
+        }
+      ],
+      "returns": [
+        {
+          "name": "library",
+          "type": "string",
+          "desc": "库名"
+        },
+        {
+          "name": "tools",
+          "type": "array",
+          "desc": "OpenAI Function Calling 格式的工具列表（最多100个）"
+        },
+        {
+          "name": "total",
+          "type": "number",
+          "desc": "工具数量"
+        },
+        {
+          "name": "error",
+          "type": "string",
+          "desc": "错误信息（失败时）"
+        }
+      ],
+      "notes": "所有参数类型统一标注为 string",
+      "pitfalls": "最多转换前100个函数；参数类型推断粗糙"
+    },
+    "from_openai": {
+      "description": "将 OpenAI Function Schema 转换为 AICP 插件",
+      "params": [
+        {
+          "name": "tools",
+          "required": true,
+          "type": "array",
+          "desc": "OpenAI Function Calling tools 数组"
+        },
+        {
+          "name": "name",
+          "required": false,
+          "type": "string",
+          "desc": "插件名称，默认 openai_tools"
+        }
+      ],
+      "returns": [
+        {
+          "name": "ok",
+          "type": "boolean",
+          "desc": "是否成功"
+        },
+        {
+          "name": "plugin_name",
+          "type": "string",
+          "desc": "插件名"
+        },
+        {
+          "name": "plugin_file",
+          "type": "string",
+          "desc": "生成的插件文件路径"
+        },
+        {
+          "name": "route",
+          "type": "string",
+          "desc": "插件 API 路由"
+        },
+        {
+          "name": "total_tools",
+          "type": "number",
+          "desc": "工具数量"
+        },
+        {
+          "name": "error",
+          "type": "string",
+          "desc": "错误信息（失败时）"
+        }
+      ],
+      "notes": "生成的插件仅模拟调用，不实际执行工具逻辑",
+      "pitfalls": "生成的插件是 stub 形式，只返回调用信息不实际执行"
+    }
+  }
+}

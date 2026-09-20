@@ -1,0 +1,36 @@
+{
+  "auto_save": {
+    "enabled": true,
+    "min_length": 20,
+    "max_length": 100000,
+    "similarity_threshold": 0.5,
+    "quality_min_chars": 50,
+    "quality_alnum_ratio": 0.3,
+    "exclude_patterns": [
+      "heartbeat",
+      "ping",
+      "status",
+      "[LOG]"
+    ],
+    "allowed_routes": [
+      "/api/applications/office/_init",
+      "/api/applications/office/converter",
+      "/api/applications/office/folder_scan",
+      "/api/applications/office/generate",
+      "/api/applications/office/processor",
+      "/api/applications/office/text_to_md",
+      "/api/applications/office/upload",
+      "/api/applications/office/web_converter"
+    ]
+  },
+  "summary": {
+    "enabled": false,
+    "min_length": 200,
+    "only_on_demand": true
+  },
+  "chroma": {
+    "enabled": false,
+    "model": "BAAI/bge-m3",
+    "collection": "knowledge_base"
+  }
+}

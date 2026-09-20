@@ -1,0 +1,63 @@
+# ============================================================
+# AICP Engine 配置文件模板
+# 复制此文件为 aicp.yaml，填入你自己的配置
+# aicp.yaml 不要提交到仓库（已在 .gitignore 中）
+# ============================================================
+
+# ---------- 基础服务 ----------
+host: 0.0.0.0
+port: 9000
+static_dir: www
+data_dir: data
+plugins_dir: plugins
+
+# ---------- WebSocket ----------
+websocket:
+  external_url: ws://127.0.0.1:9001/ws
+
+# ---------- 认证 ----------
+enable_auth: true
+
+# 你的 允许访问 token 列表（至少一个主token）
+tokens:
+  - 你的token
+
+# Studio token（用于web_studio页面，可选）
+studio_token: 你的token
+
+# 主会话 ID（webhook、回调、定时任务都会唤醒这个 session）
+session_id: 你的session_id=你的访问主token
+
+
+
+# ---------- 模型配置 ----------
+models:
+  roles:
+    default: 你的默认模型--对应providers里具体的models id
+    coding: 你的编码模型 不配置默认default
+    reasoning: 你的推理模型 不配置默认 default
+  max_retries: 3
+  request_timeout: 90
+  stream_timeout: 300
+  max_concurrent: 5
+  providers:
+    # 你的模型提供商配置
+    openai:
+      base_url: https://你的提供商地址/v1
+      api_key: 你的API Key，支持环境变量 ${AGGREGATOR_API_KEY}和明文
+      models:
+        - id: 你的模型ID
+          max_tokens: 8192
+          temperature: 0.1
+    aggregator:  # 支持聚合模型，一个key，对应多个模型，
+      base_url: https://api.llm-token.cn/v1
+      api_key: ${AGGREGATOR_API_KEY}
+      models:
+      - id: claude-sonnet-4-6
+        max_tokens: 32768
+        temperature: 0.1
+      - id: doubao-seed-2.0-code
+        max_tokens: 8192
+        temperature: 0.1
+      - id: MiniMax-M3
+        max_tokens: 32768

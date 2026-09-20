@@ -1,0 +1,82 @@
+{
+  "plugin": "builtins/agents/vision",
+  "actions": {
+    "analyze": {
+      "description": "分析截图，根据意图返回归一化坐标操作指令或纯分析结果",
+      "params": [
+        {
+          "name": "image",
+          "required": true,
+          "type": "string",
+          "desc": "PNG截图的base64编码字符串"
+        },
+        {
+          "name": "intent",
+          "required": true,
+          "type": "string",
+          "desc": "用户意图描述，如'点击确定按钮'或'查询当前页面内容'"
+        },
+        {
+          "name": "allow_actions",
+          "required": false,
+          "type": "boolean",
+          "desc": "是否允许返回操作指令，false时只分析不执行操作"
+        },
+        {
+          "name": "region",
+          "required": false,
+          "type": "object",
+          "desc": "操作目标区域限制范围"
+        }
+      ],
+      "returns": [
+        {
+          "name": "done",
+          "type": "boolean",
+          "desc": "意图是否已完全执行完毕"
+        },
+        {
+          "name": "thinking",
+          "type": "string",
+          "desc": "LLM分析思考过程"
+        },
+        {
+          "name": "result",
+          "type": "string",
+          "desc": "给用户的文字反馈"
+        },
+        {
+          "name": "error",
+          "type": "string",
+          "desc": "错误信息，无错误时为空字符串"
+        },
+        {
+          "name": "actions",
+          "type": "array",
+          "desc": "操作指令数组，包含click/type/hotkey/scroll/wait/screenshot等"
+        },
+        {
+          "name": "exec_result",
+          "type": "object",
+          "desc": "actions执行结果，由actions插件返回"
+        },
+        {
+          "name": "need_screenshot",
+          "type": "boolean",
+          "desc": "是否需要下一轮截图确认"
+        },
+        {
+          "name": "origin_image_size",
+          "type": "string",
+          "desc": "原始截图尺寸，格式'宽*高'"
+        },
+        {
+          "name": "result_origin_coords",
+          "type": "array",
+          "desc": "分析结果中目标元素的原图像素区域坐标[x1,y1,x2,y2]"
+        }
+      ],
+      "pitfalls": "若LLM返回error字段则直接终止；像素模式(norm=false)必须同时提供infer_width和infer_height；actions执行依赖actions插件可用"
+    }
+  }
+}

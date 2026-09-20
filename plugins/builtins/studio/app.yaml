@@ -1,0 +1,10 @@
+name: AICP Studio
+id: studio
+version: 1.0.0
+description: AI-Native IDE — 多平台 AI 对话 + 代码保存 + 项目预览
+auto_start: true
+init_action: init
+menu:
+  label: 🛠 AICP Studio
+  items:
+    - { label: 打开 Studio, action: open, receiver: builtins/studio/_init }

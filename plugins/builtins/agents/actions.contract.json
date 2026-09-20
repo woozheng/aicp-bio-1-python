@@ -1,0 +1,88 @@
+{
+  "plugin": "agents/actions",
+  "actions": {
+    "execute": {
+      "description": "执行 vision_agent 返回的操作指令列表，支持点击、输入、按键、滚动、等待、截图、Excel操作、代码操作等",
+      "params": [
+        {
+          "name": "actions",
+          "required": false,
+          "type": "array",
+          "desc": "操作指令列表，每个指令为对象，包含 type 字段及对应参数"
+        },
+        {
+          "name": "region",
+          "required": false,
+          "type": "object",
+          "desc": "取景框区域 {x, y, w, h}，用于坐标换算，默认 {x: 0, y: 0}"
+        },
+        {
+          "name": "action.type",
+          "required": false,
+          "type": "string",
+          "desc": "操作类型: click/type/hotkey/scroll/wait/screenshot/excel/code"
+        },
+        {
+          "name": "action.x",
+          "required": false,
+          "type": "number",
+          "desc": "点击/滚动的x坐标（click、scroll 必填）"
+        },
+        {
+          "name": "action.y",
+          "required": false,
+          "type": "number",
+          "desc": "点击/滚动的y坐标（click、scroll 必填）"
+        },
+        {
+          "name": "action.text",
+          "required": false,
+          "type": "string",
+          "desc": "输入的文本内容（type 操作）"
+        },
+        {
+          "name": "action.no_enter",
+          "required": false,
+          "type": "boolean",
+          "desc": "是否禁止输入后自动回车，默认 False"
+        },
+        {
+          "name": "action.keys",
+          "required": false,
+          "type": "array",
+          "desc": "快捷键组合列表（hotkey 操作）"
+        },
+        {
+          "name": "action.delta",
+          "required": false,
+          "type": "number",
+          "desc": "滚动量，正数向上，负数向下（scroll 操作）"
+        },
+        {
+          "name": "action.seconds",
+          "required": false,
+          "type": "number",
+          "desc": "等待秒数（wait 操作），默认 1"
+        }
+      ],
+      "returns": [
+        {
+          "name": "results",
+          "type": "array",
+          "desc": "每个操作的执行结果列表，每项包含 ok/detail/error 等字段"
+        },
+        {
+          "name": "need_screenshot",
+          "type": "boolean",
+          "desc": "是否需要截图确认（遇到 screenshot 操作时为 True）"
+        },
+        {
+          "name": "all_ok",
+          "type": "boolean",
+          "desc": "所有操作是否全部成功"
+        }
+      ],
+      "pitfalls": "click 和 scroll 操作的 x、y 为必填但源码用 dict 索引访问，缺失会抛异常；excel 和 code 操作依赖 core.call_plugin 调用其他插件；在异步函数中使用 loop.run_until_complete 可能有事件循环问题"
+    }
+  }
+}

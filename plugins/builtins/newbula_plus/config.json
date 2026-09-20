@@ -1,0 +1,321 @@
+{
+  "platforms": [
+    {
+      "id": "doubao",
+      "name": "豆包",
+      "url": "https://www.doubao.com/chat",
+      "chrome_port": 9222,
+      "profile_dir": "./profiles/doubao",
+      "model_ids": [
+        "newbula_doubao",
+        "newbula_plus"
+      ],
+      "reader": {
+        "file": "scripts/doubao.js"
+      },
+      "enabled": true,
+      "input_click": {
+        "x": 97,
+        "y": 674
+      },
+      "input_region": {
+        "x1": 472,
+        "y1": 727,
+        "x2": 617,
+        "y2": 799
+      },
+      "capabilities": {
+        "image": {
+          "patterns": [
+            "byteimg.com"
+          ],
+          "valid_filter": [
+            "x-signature",
+            "lk3s",
+            "x-expires",
+            "rcl",
+            "rrcfp"
+          ],
+          "loading_filter": []
+        },
+        "audio": {
+          "patterns": [],
+          "valid_filter": [],
+          "loading_filter": []
+        },
+        "document": {
+          "patterns": [],
+          "valid_filter": [],
+          "loading_filter": []
+        }
+      },
+      "expertise": [
+        "搜索",
+        "生活",
+        "天气",
+        "新闻",
+        "常识",
+        "翻译",
+        "写作"
+      ]
+    },
+    {
+      "id": "361259d4",
+      "name": "千问",
+      "url": "https://tongyi.aliyun.com/qianwen",
+      "chrome_port": 9231,
+      "profile_dir": "./profiles/千问",
+      "model_ids": [
+        "newbula_qwen"
+      ],
+      "reader": {
+        "type": "js_file",
+        "file": "scripts/qwen.js"
+      },
+      "enabled": false,
+      "input_click": {
+        "x": 58,
+        "y": 597
+      },
+      "input_region": {
+        "x1": 408,
+        "y1": 692,
+        "x2": 568,
+        "y2": 787
+      },
+      "capabilities": {
+        "image": {
+          "patterns": [
+            "qianwen.com",
+            "alicdn.com"
+          ],
+          "valid_filter": [
+            "workspace-zb-cdn.qianwen.com",
+            "auth_key"
+          ],
+          "loading_filter": []
+        },
+        "audio": {
+          "patterns": [],
+          "valid_filter": [],
+          "loading_filter": []
+        },
+        "document": {
+          "patterns": [
+            "sm.cn"
+          ],
+          "valid_filter": [],
+          "loading_filter": []
+        }
+      },
+      "expertise": [
+        "深度分析",
+        "文档",
+        "学术",
+        "长文",
+        "代码",
+        "逻辑推理"
+      ]
+    },
+    {
+      "id": "deepseek",
+      "name": "DeepSeek",
+      "url": "https://chat.deepseek.com",
+      "chrome_port": 9232,
+      "profile_dir": "./profiles/deepseek",
+      "model_ids": [
+        "newbula_deepseek"
+      ],
+      "reader": {
+        "file": "scripts/deepseek.js"
+      },
+      "enabled": true,
+      "capabilities": {
+        "image": {
+          "patterns": [
+            "picsum.photos",
+            "deepseeksvc.com",
+            "placeholder.com"
+          ],
+          "valid_filter": [],
+          "loading_filter": []
+        },
+        "audio": {
+          "patterns": [
+            "sonic-pi.net",
+            "beepbox.co"
+          ],
+          "valid_filter": [],
+          "loading_filter": []
+        },
+        "document": {
+          "patterns": [
+            "xiaoming.me",
+            "github.com"
+          ],
+          "valid_filter": [],
+          "loading_filter": []
+        }
+      },
+      "expertise": [
+        "代码",
+        "数学",
+        "逻辑推理",
+        "编程",
+        "技术问答"
+      ],
+      "input_click": {
+        "x": 220,
+        "y": 543
+      },
+      "input_region": {
+        "x1": 113,
+        "y1": 668,
+        "x2": 333,
+        "y2": 772
+      }
+    },
+    {
+      "id": "kimi",
+      "name": "Kimi",
+      "url": "https://kimi.com",
+      "chrome_port": 9233,
+      "profile_dir": "./profiles/kimi",
+      "model_ids": [
+        "newbula_kimi"
+      ],
+      "reader": {
+        "file": "scripts/kimi.js"
+      },
+      "enabled": false,
+      "capabilities": {
+        "image": {},
+        "audio": {},
+        "document": {}
+      },
+      "expertise": [
+        "长文",
+        "总结",
+        "资料整理",
+        "阅读",
+        "分析报告"
+      ],
+      "input_click": {
+        "x": 204,
+        "y": 480
+      },
+      "input_region": {
+        "x1": 170,
+        "y1": 660,
+        "x2": 414,
+        "y2": 757
+      }
+    },
+    {
+      "id": "chatgpt",
+      "name": "ChatGPT",
+      "url": "https://chat.openai.com",
+      "chrome_port": 9234,
+      "profile_dir": "./profiles/chatgpt",
+      "model_ids": [
+        "newbula_chatgpt"
+      ],
+      "reader": {
+        "selector": "",
+        "id_marker": "（ID={id}）"
+      },
+      "enabled": false,
+      "capabilities": {
+        "image": {},
+        "audio": {},
+        "document": {}
+      },
+      "expertise": [
+        "通用",
+        "创意写作",
+        "头脑风暴",
+        "英语",
+        "编程"
+      ]
+    },
+    {
+      "id": "gemini",
+      "name": "Gemini",
+      "url": "https://gemini.google.com",
+      "chrome_port": 9235,
+      "profile_dir": "./profiles/gemini",
+      "model_ids": [
+        "newbula_gemini"
+      ],
+      "reader": {
+        "selector": "",
+        "id_marker": "（ID={id}）"
+      },
+      "enabled": false,
+      "capabilities": {
+        "image": {},
+        "audio": {},
+        "document": {}
+      },
+      "expertise": [
+        "多模态",
+        "搜索",
+        "Google生态",
+        "数据分析"
+      ]
+    },
+    {
+      "id": "claude",
+      "name": "Claude",
+      "url": "https://claude.ai",
+      "chrome_port": 9236,
+      "profile_dir": "./profiles/claude",
+      "model_ids": [
+        "newbula_claude"
+      ],
+      "reader": {
+        "selector": "",
+        "id_marker": "（ID={id}）"
+      },
+      "enabled": false,
+      "capabilities": {
+        "image": {},
+        "audio": {},
+        "document": {}
+      },
+      "expertise": [
+        "安全",
+        "长文",
+        "分析",
+        "学术",
+        "编程"
+      ]
+    },
+    {
+      "id": "grok",
+      "name": "Grok",
+      "url": "https://x.com/i/grok",
+      "chrome_port": 9237,
+      "profile_dir": "./profiles/grok",
+      "model_ids": [
+        "newbula_grok"
+      ],
+      "reader": {
+        "selector": "",
+        "id_marker": "（ID={id}）"
+      },
+      "enabled": false,
+      "capabilities": {
+        "image": {},
+        "audio": {},
+        "document": {}
+      },
+      "expertise": [
+        "实时信息",
+        "X数据",
+        "幽默",
+        "新闻"
+      ]
+    }
+  ]
+}

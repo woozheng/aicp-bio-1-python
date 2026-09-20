@@ -1,0 +1,136 @@
+{
+  "plugin": "builtins/tools/aicp_chat",
+  "actions": {
+    "capabilities": {
+      "description": "探测本节点能力，返回网络、GPU、模型配置等信息",
+      "params": [],
+      "returns": [
+        {
+          "name": "ok",
+          "type": "boolean",
+          "desc": "是否成功"
+        },
+        {
+          "name": "data",
+          "type": "object",
+          "desc": "能力详情"
+        },
+        {
+          "name": "data.name",
+          "type": "string",
+          "desc": "节点名称"
+        },
+        {
+          "name": "data.os",
+          "type": "string",
+          "desc": "操作系统"
+        },
+        {
+          "name": "data.python",
+          "type": "string",
+          "desc": "Python 版本"
+        },
+        {
+          "name": "data.network",
+          "type": "object",
+          "desc": "网络访问能力"
+        },
+        {
+          "name": "data.network.can_access_foreign",
+          "type": "boolean",
+          "desc": "能否访问国外网络"
+        },
+        {
+          "name": "data.network.can_access_domestic",
+          "type": "boolean",
+          "desc": "能否访问国内网络"
+        },
+        {
+          "name": "data.gpu",
+          "type": "object",
+          "desc": "GPU 信息"
+        },
+        {
+          "name": "data.gpu.available",
+          "type": "boolean",
+          "desc": "是否有 GPU"
+        },
+        {
+          "name": "data.gpu.model",
+          "type": "string",
+          "desc": "GPU 型号"
+        },
+        {
+          "name": "data.models",
+          "type": "array",
+          "desc": "可用模型列表"
+        }
+      ]
+    },
+    "chat": {
+      "description": "执行 LLM chat，对话式交互（默认 action）",
+      "params": [
+        {
+          "name": "messages",
+          "required": true,
+          "type": "array",
+          "desc": "消息列表 [{role, content}]，直接调用方式"
+        },
+        {
+          "name": "task",
+          "required": false,
+          "type": "string",
+          "desc": "任务描述，main_agent 调用方式，会转为 messages"
+        },
+        {
+          "name": "payload",
+          "required": false,
+          "type": "object",
+          "desc": "旧格式兼容，嵌套的 messages"
+        },
+        {
+          "name": "payload.messages",
+          "required": false,
+          "type": "array",
+          "desc": "旧格式的消息列表"
+        },
+        {
+          "name": "model",
+          "required": false,
+          "type": "string",
+          "desc": "模型名称"
+        },
+        {
+          "name": "temperature",
+          "required": false,
+          "type": "number",
+          "desc": "温度参数"
+        },
+        {
+          "name": "max_iter",
+          "required": false,
+          "type": "number",
+          "desc": "最大迭代次数，默认 5"
+        }
+      ],
+      "returns": [
+        {
+          "name": "ok",
+          "type": "boolean",
+          "desc": "是否成功"
+        },
+        {
+          "name": "data",
+          "type": "string",
+          "desc": "LLM 返回结果，如果是 dict/list 会转为 JSON 字符串"
+        },
+        {
+          "name": "error",
+          "type": "string",
+          "desc": "错误信息"
+        }
+      ],
+      "pitfalls": "messages 参数有三种来源：直接传 messages、传 task 转 messages、传 payload.messages，优先取 messages，task 作为备选"
+    }
+  }
+}

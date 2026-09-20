@@ -1,0 +1,58 @@
+{
+  "plugin": "channels/email_channel",
+  "actions": {
+    "check_now": {
+      "description": "立即手动触发一次邮箱检查，拉取未读邮件并处理",
+      "params": [],
+      "returns": [
+        {
+          "name": "ok",
+          "type": "boolean",
+          "desc": "操作是否成功"
+        },
+        {
+          "name": "message",
+          "type": "string",
+          "desc": "成功时的提示信息"
+        },
+        {
+          "name": "error",
+          "type": "string",
+          "desc": "失败时的错误信息"
+        }
+      ],
+      "pitfalls": "邮箱未启用时返回 ok=false；依赖 get_channel_config('email') 中的 enabled、imap_host、user、password 等配置"
+    },
+    "test_send": {
+      "description": "向配置的邮箱发送一封测试邮件，验证发送通道是否正常",
+      "params": [],
+      "returns": [
+        {
+          "name": "ok",
+          "type": "boolean",
+          "desc": "发送是否成功"
+        },
+        {
+          "name": "message",
+          "type": "string",
+          "desc": "发送结果提示"
+        }
+      ],
+      "pitfalls": "依赖 get_channel_config('email') 中的 user 配置；未配置邮箱时返回 ok=false"
+    },
+    "email_loop": {
+      "description": "后台邮件监听循环，按配置间隔自动检查邮箱并处理符合条件的邮件",
+      "params": [
+        {
+          "name": "agent",
+          "required": true,
+          "type": "object",
+          "desc": "Agent 实例，用于调用系统接口和发送邮件"
+        }
+      ],
+      "returns": [],
+      "notes": "常驻后台循环，不会主动返回；每轮检查后休眠 check_interval 秒（默认60秒）",
+      "pitfalls": "首次启动先 sleep 15 秒再检查；每次最多处理 5 封未读邮件；已处理邮件 ID 缓存上限 1000 条；自身发出的邮件和系统回复会被跳过"
+    }
+  }
+}

@@ -1,0 +1,5 @@
+{
+  "plugin": "contracts",
+  "actions": {},
+  "notes": "此文件为库模块，提供记忆提取与契约解析的工具函数，不包含 execute 函数和 action 分发逻辑。主要数据类和函数如下：ContractParam, PluginContract, MemoryContract；函数：extract_contract, get_plugin_contract, extract_memory_contracts, extract_memories_from_result, infer_memory_semantics, _parse_contract_attrs。"
+}

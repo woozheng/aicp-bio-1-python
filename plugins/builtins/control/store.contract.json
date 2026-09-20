@@ -1,0 +1,164 @@
+{
+  "plugin": "store",
+  "actions": {
+    "list": {
+      "description": "获取应用商店应用列表",
+      "params": [
+        {
+          "name": "action",
+          "required": false,
+          "type": "string",
+          "desc": "操作类型，默认 list"
+        },
+        {
+          "name": "index_url",
+          "required": false,
+          "type": "string",
+          "desc": "应用索引 JSON 地址，默认官方 index"
+        }
+      ],
+      "returns": [
+        {
+          "name": "apps",
+          "type": "array",
+          "desc": "应用列表，每项含 id/name/type/description/category/author/version/git_url/installed 字段"
+        },
+        {
+          "name": "total",
+          "type": "number",
+          "desc": "应用总数"
+        }
+      ],
+      "pitfalls": "网络不可用时回退到内置的 3 个默认应用列表"
+    },
+    "install": {
+      "description": "安装应用（git clone 后复制到本地目录）",
+      "params": [
+        {
+          "name": "action",
+          "required": false,
+          "type": "string",
+          "desc": "操作类型，默认 list"
+        },
+        {
+          "name": "app_id",
+          "required": true,
+          "type": "string",
+          "desc": "应用 ID"
+        },
+        {
+          "name": "git_url",
+          "required": true,
+          "type": "string",
+          "desc": "Git 仓库地址"
+        },
+        {
+          "name": "type",
+          "required": false,
+          "type": "string",
+          "desc": "应用类型：single 或 bundle，默认 single"
+        },
+        {
+          "name": "bundled_apps",
+          "required": false,
+          "type": "array",
+          "desc": "bundle 模式下的子应用 ID 列表"
+        }
+      ],
+      "returns": [
+        {
+          "name": "ok",
+          "type": "boolean",
+          "desc": "是否成功"
+        },
+        {
+          "name": "app_id",
+          "type": "string",
+          "desc": "安装的主应用 ID"
+        },
+        {
+          "name": "installed",
+          "type": "array",
+          "desc": "实际安装的应用 ID 列表"
+        },
+        {
+          "name": "error",
+          "type": "string",
+          "desc": "失败时的错误信息"
+        }
+      ],
+      "pitfalls": "需要系统安装 git；git clone 超时 60 秒；bundle 模式下目录结构必须为 apps/{sub_id}/"
+    },
+    "uninstall": {
+      "description": "卸载应用",
+      "params": [
+        {
+          "name": "action",
+          "required": false,
+          "type": "string",
+          "desc": "操作类型，默认 list"
+        },
+        {
+          "name": "app_id",
+          "required": true,
+          "type": "string",
+          "desc": "应用 ID"
+        },
+        {
+          "name": "type",
+          "required": false,
+          "type": "string",
+          "desc": "应用类型：single 或 bundle，默认 single"
+        },
+        {
+          "name": "bundled_apps",
+          "required": false,
+          "type": "array",
+          "desc": "bundle 模式下的子应用 ID 列表"
+        }
+      ],
+      "returns": [
+        {
+          "name": "ok",
+          "type": "boolean",
+          "desc": "是否成功"
+        },
+        {
+          "name": "app_id",
+          "type": "string",
+          "desc": "卸载的应用 ID"
+        },
+        {
+          "name": "error",
+          "type": "string",
+          "desc": "失败时的错误信息"
+        }
+      ],
+      "notes": "卸载使用 ignore_errors，目录不存在也不会报错"
+    },
+    "installed": {
+      "description": "列出本地已安装的应用",
+      "params": [
+        {
+          "name": "action",
+          "required": false,
+          "type": "string",
+          "desc": "操作类型，默认 list"
+        }
+      ],
+      "returns": [
+        {
+          "name": "apps",
+          "type": "array",
+          "desc": "已安装应用列表，每项含 id/name/version/description"
+        },
+        {
+          "name": "total",
+          "type": "number",
+          "desc": "已安装应用数量"
+        }
+      ],
+      "notes": "读取 plugins/applications 下目录，若有 app.yaml 则从中读取元信息；需要 pyyaml 包"
+    }
+  }
+}

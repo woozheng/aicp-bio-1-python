@@ -1,0 +1,9 @@
+name: 数字探头
+id: screen_probe
+auto_start: true
+init_action: init
+menu:
+  label: 数字探头
+  items:
+    - { label: 监控台, action: open_web, url: /screen_probe/index.html, receiver: builtins/screen_probe/_init }
+    - { label: 新建探头, action: create, receiver: builtins/screen_probe/routes }

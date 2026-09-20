@@ -1,0 +1,14 @@
+name: MK 助手
+id: mk
+version: 1.0.0
+description: 桌面 AI 助手，支持划词处理、自动聊天、键鼠操控
+auto_start: true
+init_action: init
+menu:
+  label: 🖱 MK 助手
+  items:
+    - { label: 启动 Analyst, action: start_analyst, receiver: builtins/mk/_init }
+    - { label: 停止 Analyst, action: stop_analyst, receiver: builtins/mk/_init }
+    - { label: 启动 Worker, action: start, receiver: builtins/mk/worker }
+    - { label: 停止 Worker, action: stop, receiver: builtins/mk/worker }
+    - { label: 打开面板, action: panel, receiver: builtins/mk/_init }

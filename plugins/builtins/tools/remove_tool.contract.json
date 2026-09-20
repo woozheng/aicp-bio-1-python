@@ -1,0 +1,35 @@
+{
+  "plugin": "builtins/tools/remove_tool",
+  "actions": {
+    "remove_tool": {
+      "description": "删除整个项目（包括前后端代码、web资源、契约文件）",
+      "params": [
+        {
+          "name": "target",
+          "required": true,
+          "type": "string",
+          "desc": "项目名、插件名、或路径（如 applications/xxx/xxx_api）"
+        }
+      ],
+      "returns": [
+        {
+          "name": "ok",
+          "type": "boolean",
+          "desc": "是否成功"
+        },
+        {
+          "name": "message",
+          "type": "string",
+          "desc": "成功时的结果消息，含已删除的文件/目录列表"
+        },
+        {
+          "name": "error",
+          "type": "string",
+          "desc": "失败时的错误信息"
+        }
+      ],
+      "notes": "无 action 分发，execute 直接处理 target 参数；会自动尝试从 cogitor 获取项目列表做模糊匹配；兼容 params 嵌套和扁平两种传参方式",
+      "pitfalls": "1) 该操作不可逆，会删除 plugins/applications/{name}、www/{name}、data/www/{name} 及对应 .contract.json 文件；2) 未找到项目时返回 ok=false；3) 输入路径会自动提取 applications/ 后第一段作为项目名"
+    }
+  }
+}

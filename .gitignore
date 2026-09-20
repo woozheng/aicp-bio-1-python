@@ -1,0 +1,86 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+
+# 虚拟环境
+venv/
+env/
+.venv/
+.env
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# 系统文件
+.DS_Store
+Thumbs.db
+*.bak
+*.tmp
+*.log
+
+# 数据目录（敏感数据，不提交）
+# 数据目录：白名单模式
+docs/
+data/
+
+# 保留 www/index.html，屏蔽 www/ 下所有子目录
+www/*
+
+!www/*.html
+# 日志
+logs/
+*.log
+
+# 环境配置（包含敏感信息，不提交）
+.env
+*.env.local
+endpoints.yaml
+aicp.yaml
+
+# 临时文件
+tmp/
+temp/
+*.tmp
+*.temp
+personal_assistant/
+profiles/
+hermes_plugins/
+llmtest.py
+model_benchmark_results.json
+
+# 忽略 plugins/ 下所有
+plugins/*
+
+# 但保留这两个子目录
+!plugins/builtins/
+!plugins/os/
+
+backups/
+data/memories/main_agent/testtoken_flow_backup*
+
+# 备份文件
+*.bak
+*.backup
+
+# 执行产物
+output/
+executions/
+
+
+
+# 依赖
+node_modules/
+
+# Docker
+.dockerignore

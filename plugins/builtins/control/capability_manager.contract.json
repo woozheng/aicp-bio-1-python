@@ -1,0 +1,119 @@
+{
+  "plugin": "builtins/control/capability_manager",
+  "actions": {
+    "list": {
+      "description": "列出所有能力条目",
+      "params": [],
+      "returns": [
+        {
+          "name": "ok",
+          "type": "boolean",
+          "desc": "操作是否成功"
+        },
+        {
+          "name": "entries",
+          "type": "array",
+          "desc": "能力条目列表"
+        },
+        {
+          "name": "total",
+          "type": "number",
+          "desc": "条目总数"
+        }
+      ]
+    },
+    "add": {
+      "description": "添加一个能力条目，按 name 去重",
+      "params": [
+        {
+          "name": "entry",
+          "required": true,
+          "type": "object",
+          "desc": "能力条目对象，需包含 name 字段"
+        }
+      ],
+      "returns": [
+        {
+          "name": "ok",
+          "type": "boolean",
+          "desc": "操作是否成功"
+        },
+        {
+          "name": "message",
+          "type": "string",
+          "desc": "结果消息"
+        },
+        {
+          "name": "error",
+          "type": "string",
+          "desc": "错误信息，失败时返回"
+        }
+      ],
+      "pitfalls": "如果已存在同名 entry，会先删除旧的再添加新的，相当于覆盖"
+    },
+    "update": {
+      "description": "按 name 更新能力条目",
+      "params": [
+        {
+          "name": "name",
+          "required": true,
+          "type": "string",
+          "desc": "要更新的能力名称"
+        },
+        {
+          "name": "updates",
+          "required": true,
+          "type": "object",
+          "desc": "要更新的字段键值对"
+        }
+      ],
+      "returns": [
+        {
+          "name": "ok",
+          "type": "boolean",
+          "desc": "操作是否成功"
+        },
+        {
+          "name": "message",
+          "type": "string",
+          "desc": "结果消息"
+        },
+        {
+          "name": "error",
+          "type": "string",
+          "desc": "错误信息，失败时返回"
+        }
+      ],
+      "pitfalls": "如果 name 不存在，不会报错，静默无操作"
+    },
+    "delete": {
+      "description": "按 name 删除能力条目",
+      "params": [
+        {
+          "name": "name",
+          "required": true,
+          "type": "string",
+          "desc": "要删除的能力名称"
+        }
+      ],
+      "returns": [
+        {
+          "name": "ok",
+          "type": "boolean",
+          "desc": "操作是否成功"
+        },
+        {
+          "name": "message",
+          "type": "string",
+          "desc": "结果消息"
+        },
+        {
+          "name": "error",
+          "type": "string",
+          "desc": "错误信息，失败时返回"
+        }
+      ],
+      "pitfalls": "如果 name 不存在，不会报错，仍返回成功"
+    }
+  }
+}

@@ -1,0 +1,10 @@
+name: 控制面板
+id: control
+version: 1.0.0
+description: 系统控制面板 — 管理配置、应用、日志
+auto_start: true
+init_action: init
+menu:
+  label: ⚙️ 控制面板
+  items:
+    - { label: 打开控制面板, action: open_web, url: /control/index.html, receiver: builtins/control/_init }
