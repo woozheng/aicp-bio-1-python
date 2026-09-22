@@ -36,8 +36,9 @@ data/
 
 # 保留 www/index.html，屏蔽 www/ 下所有子目录
 www/*
-
 !www/*.html
+!www/aicp-core/
+!www/office/
 # 日志
 logs/
 *.log

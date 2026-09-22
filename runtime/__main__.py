@@ -73,7 +73,7 @@ def _load_app_config(app_dir: Path) -> dict | None:
 
 
 async def main():
-  
+
     sys.stdout.reconfigure(encoding='utf-8', errors='ignore')
     sys.stderr.reconfigure(encoding='utf-8', errors='ignore')
     os.environ['PYTHONIOENCODING'] = 'utf-8'
@@ -119,10 +119,10 @@ async def main():
     # System
     if SERVER_MODE:
         from runtime._system import SystemServer
-        system = SystemServer(loop, route)
+        system = SystemServer(loop, route, config=config)
     else:
         from runtime._system import System
-        system = System(loop, route, on_shutdown=shutdown)
+        system = System(loop, route, config=config, on_shutdown=shutdown)
 
     # Agent
     agent = Agent()
@@ -137,6 +137,13 @@ async def main():
     agent.Envelop = Envelop
     agent.system = system
     system.bind(agent)
+
+    # ---------- 启动可视化 worker ----------
+    if getattr(system, '_viz_enabled', False):
+        await system.start_visualizer()
+        logger.info(f"Visualizer: enabled on channel {system._viz_channel}")
+    else:
+        logger.debug("Visualizer: disabled")
 
     import core
     count = load_all_plugins()
@@ -253,7 +260,7 @@ async def main():
             except Exception as e:
                 logger.warning(f"  ❌ {app_config.get('name', app_dir.name)}: {e}")
 
-  
+
 
     # GUI
     if not NO_GUI:
@@ -305,7 +312,7 @@ async def main():
             logger.warning(f"WebSocket cleanup failed: {e}")
 
     if file_runner:
-        try: 
+        try:
             await file_runner.cleanup()
             logger.info("FileReceiver stopped")
         except Exception as e:
