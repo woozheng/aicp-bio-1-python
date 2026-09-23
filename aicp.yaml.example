@@ -28,7 +28,11 @@ studio_token: 你的token
 # 主会话 ID（webhook、回调、定时任务都会唤醒这个 session）
 session_id: 你的session_id=你的访问主token
 
-
+# 可视化配置   开启后可以主控屏幕visualzer监控生效
+visualization:
+  enabled: true
+  channel: pa_visualizer
+  queue_size: 1000
 
 # ---------- 模型配置 ----------
 models:
@@ -54,10 +58,10 @@ models:
       api_key: ${AGGREGATOR_API_KEY}
       models:
       - id: claude-sonnet-4-6
-        max_tokens: 32768
+        max_tokens: 8192
         temperature: 0.1
       - id: doubao-seed-2.0-code
         max_tokens: 8192
         temperature: 0.1
       - id: MiniMax-M3
-        max_tokens: 32768
+        max_tokens: 8192

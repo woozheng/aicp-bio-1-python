@@ -548,20 +548,6 @@ class PromptManager:
         if context:
             parts.append(f"【信息流】\n{context}")
 
-        # 防重复查询提示
-        if context:
-            if "list_plugins" in context and "成功" in context:
-                parts.append("【提示】已获取插件列表，选定工具后如不知参数再查contract_agent，不要重复list_plugins")
-            elif "contract_agent" in context and "成功" in context:
-                parts.append("【提示】已获取契约信息，现在直接调用目标工具，不要重复查询")
-            elif "create_tool" in context and "成功" in context:
-                if "纯前端" in context or "frontend" in context:
-                    parts.append("【提示】纯前端应用创建成功，文件在 www/ 目录。不要用 list_plugins 验证，直接用 file_exists 检查 www/项目名/index.html 即可。")
-                else:
-                    parts.append("【提示】工具已创建并热重载生效，可直接调用新工具")
-            elif "create_tool" in context and ("失败" in context or "error" in context.lower()):
-                parts.append("【提示】create_tool 失败了。分析错误原因，用文本回复用户。不要输出代码，不要重复调用相同参数。可以考虑：1.简化需求 2.用fix_tool修复 3.用aicp_chat兜底")
-
         if experience:
             parts.append(f"【经验背包】\n{experience}")
 
