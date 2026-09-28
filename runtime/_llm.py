@@ -33,14 +33,12 @@ def _log(msg: str) -> None:
 # Constants
 # ---------------------------------------------------------------------------
 
-# Default timeout values (seconds)
 DEFAULT_REQUEST_TIMEOUT: float = 60.0
 DEFAULT_STREAM_TIMEOUT: float = 300.0
 DEFAULT_CONNECT_TIMEOUT: float = 10.0
 DEFAULT_MAX_RETRIES: int = 3
 DEFAULT_MAX_CONCURRENT: int = 10
 
-# HTTP timeout configuration
 HTTP_TIMEOUT_CONFIG = {
     "connect": DEFAULT_CONNECT_TIMEOUT,
     "read": 90.0,
@@ -64,7 +62,6 @@ ERROR_PREFIXES = (
 )
 
 
-
 def is_llm_error_string(text) -> bool:
     """检测文本是否是 LLM 错误包装"""
     if not isinstance(text, str):
@@ -72,6 +69,37 @@ def is_llm_error_string(text) -> bool:
     if not text:
         return False
     return any(text.startswith(p) for p in ERROR_PREFIXES)
+
+
+# ---------------------------------------------------------------------------
+# ★★★ <think> 剥离工具 ★★★
+# ---------------------------------------------------------------------------
+
+def _strip_leading_think(text: str) -> str:
+    """剥掉开头的 <think>...</think> 段。
+
+    规则：
+    - 必须严格以 <think> 开头，且找到 </think> 才剥
+    - 找不到 </think> → 返回空字符串（残缺 think 段，视为无效输出）
+    - 没有 <think> 开头 → 原样返回
+
+    注意：<think> 内部可能包含 { } 等字符，
+    判断结束必须以 </think> 闭合标签为准，不能靠 { 推断。
+    """
+    if not text:
+        return text
+
+    stripped = text.lstrip()
+    if not stripped.startswith("<think>"):
+        return text
+
+    close_idx = stripped.find("</think>")
+    if close_idx == -1:
+        return ""
+
+    return stripped[close_idx + len("</think>"):].lstrip()
+
+
 # ---------------------------------------------------------------------------
 # Data models
 # ---------------------------------------------------------------------------
@@ -142,58 +170,34 @@ FALLBACK_MESSAGES = {
 
 
 class LLM:
-    """Production-grade multi-provider LLM client.
-
-    Supports:
-    - OpenAI-compatible APIs (via openai library)
-    - Streaming responses
-    - JSON structured output
-    - Concurrency control via semaphore
-    """
+    """Production-grade multi-provider LLM client."""
 
     def __init__(self, config: Dict[str, Any]) -> None:
-        """Initialize LLM client from configuration.
-
-        Args:
-            config: Configuration dictionary with 'models' section
-        """
         models_cfg = config.get("models", {})
 
-        # Role-based model selection
         self._roles: Dict[str, str] = models_cfg.get("roles", {})
         self.default_model: str = self._roles.get(
             "default",
             models_cfg.get("default", "gpt-3.5-turbo"),
         )
 
-        # Providers
         self.providers: Dict[str, Any] = models_cfg.get("providers", {})
 
-        # Internal state
         self._clients: Dict[str, AsyncOpenAI] = {}
         self._model_to_client: Dict[str, str] = {}
         self._model_configs: Dict[str, ModelConfig] = {}
 
-        # Retry & timeout configuration
         self.max_retries: int = models_cfg.get("max_retries", DEFAULT_MAX_RETRIES)
-        self.request_timeout: float = models_cfg.get(
-            "request_timeout", DEFAULT_REQUEST_TIMEOUT
-        )
-        self.stream_timeout: float = models_cfg.get(
-            "stream_timeout", DEFAULT_STREAM_TIMEOUT
-        )
-        self.connect_timeout: float = models_cfg.get(
-            "connect_timeout", DEFAULT_CONNECT_TIMEOUT
-        )
+        self.request_timeout: float = models_cfg.get("request_timeout", DEFAULT_REQUEST_TIMEOUT)
+        self.stream_timeout: float = models_cfg.get("stream_timeout", DEFAULT_STREAM_TIMEOUT)
+        self.connect_timeout: float = models_cfg.get("connect_timeout", DEFAULT_CONNECT_TIMEOUT)
 
-        # Concurrency control
         max_concurrent: int = models_cfg.get("max_concurrent", DEFAULT_MAX_CONCURRENT)
         self._semaphore = asyncio.Semaphore(max_concurrent)
 
         _log(f"📋 Config models keys: {list(models_cfg.keys())}")
         _log(f"⏱️ request_timeout: {self.request_timeout}s")
 
-        # Initialize all providers
         self._init_clients()
 
     # ======================================================================
@@ -201,9 +205,7 @@ class LLM:
     # ======================================================================
 
     def _init_clients(self) -> None:
-        """Initialize all configured providers."""
         for name, cfg in self.providers.items():
-            #print(f"[DEBUG] _init_clients: 处理 provider: {name}, cfg={cfg}")
             provider = ProviderConfig(
                 name=name,
                 type=cfg.get("type", "openai"),
@@ -211,29 +213,20 @@ class LLM:
                 base_url=cfg.get("base_url", "https://api.openai.com/v1"),
                 models=cfg.get("models", []),
             )
-            #print(f"[DEBUG] _init_clients: provider.name={provider.name}, models={len(provider.models)}")
             self._init_openai_provider(provider)
 
-        # Validate default model
         self._validate_default_model()
 
-        # Log summary
         _log(f"🤖 Default: {self.default_model} | Models: {len(self._model_to_client)}")
         if self._roles:
             _log(f"📋 Roles: {self._roles}")
 
     def _init_openai_provider(self, provider: ProviderConfig) -> None:
-        """Initialize an OpenAI-compatible provider."""
-        #print(f"[DEBUG] _init_openai_provider 被调用: {provider.name}, api_key={provider.api_key[:10] if provider.api_key else 'EMPTY'}...")
-        
-        # Skip if API key is not set
         if not provider.api_key or provider.api_key.startswith("${"):
             _log(f"⚠️ Skip {provider.name}: API key not configured")
-            #print(f"[DEBUG] _init_openai_provider: 跳过 {provider.name}, api_key 为空或变量")
             return
 
         try:
-            #print(f"[DEBUG] _init_openai_provider: 创建 AsyncOpenAI 客户端, base_url={provider.base_url}")
             timeout = httpx.Timeout(
                 timeout=120.0,
                 connect=self.connect_timeout,
@@ -256,7 +249,6 @@ class LLM:
                 max_retries=0,
             )
             self._clients[provider.name] = client
-            #print(f"[DEBUG] _init_openai_provider: AsyncOpenAI 客户端已创建, provider.name={provider.name}")
 
             for model_cfg in provider.models:
                 model_id = model_cfg.get("id")
@@ -271,7 +263,6 @@ class LLM:
                     high_quality=model_cfg.get("high_quality", False),
                 )
                 self._model_to_client[model_id] = provider.name
-                #print(f"[DEBUG] _init_openai_provider: 模型 {model_id} -> {provider.name}")
 
                 if model_cfg.get("high_quality"):
                     self.high_quality_model = model_id
@@ -279,20 +270,14 @@ class LLM:
                 _log(f"✅ {model_id} ({provider.name})")
 
         except Exception as exc:
-            #print(f"[DEBUG] _init_openai_provider: 异常 {provider.name}: {exc}")
             _log(f"❌ Failed to init {provider.name}: {exc}")
 
     def _validate_default_model(self) -> None:
-        """Ensure default_model exists, or fall back to first available."""
-        #print(f"[DEBUG] _validate_default_model: default_model={self.default_model}")
-        #print(f"[DEBUG] _validate_default_model: _model_to_client={self._model_to_client}")
         if self.default_model not in self._model_to_client:
             if self._model_to_client:
                 self.default_model = next(iter(self._model_to_client))
                 _log(f"⚠️ roles.default 模型不可用，改用: {self.default_model}")
-                #print(f"[DEBUG] _validate_default_model: 降级到 {self.default_model}")
             else:
-                #print("[DEBUG] _validate_default_model: 没有任何可用模型！")
                 _log("❌ 没有任何可用模型！")
 
     # ======================================================================
@@ -300,14 +285,6 @@ class LLM:
     # ======================================================================
 
     def _resolve_model(self, role: Optional[str] = None) -> str:
-        """Resolve model from role or return default.
-
-        Args:
-            role: Role name (e.g., "coding", "reasoning")
-
-        Returns:
-            Resolved model ID (never None)
-        """
         if not role:
             return self.default_model
 
@@ -321,30 +298,16 @@ class LLM:
         return self.default_model
 
     def _get_client(self, model: Optional[str] = None) -> tuple[Optional[AsyncOpenAI], str]:
-        """Get client and actual model name.
-
-        Args:
-            model: Requested model ID
-
-        Returns:
-            Tuple of (client, resolved_model)
-        """
         resolved_model = model or self.default_model
-        #print(f"[DEBUG] _get_client: resolved_model={resolved_model}")
         client_name = self._model_to_client.get(resolved_model)
-        #print(f"[DEBUG] _get_client: client_name={client_name}")
 
         if client_name and client_name in self._clients:
-            #print(f"[DEBUG] _get_client: 返回客户端 {client_name}")
             return self._clients[client_name], resolved_model
 
-        # Fallback to first available client
         if self._clients:
             name = next(iter(self._clients))
-            #print(f"[DEBUG] _get_client: fallback 到 {name}")
             return self._clients[name], resolved_model
 
-        #print(f"[DEBUG] _get_client: 没有可用客户端!")
         return None, resolved_model
 
     # ======================================================================
@@ -353,15 +316,6 @@ class LLM:
 
     @staticmethod
     def _calculate_backoff(attempt: int, max_wait: int = 10) -> float:
-        """Calculate exponential backoff with jitter.
-
-        Args:
-            attempt: Current attempt number (0-based)
-            max_wait: Maximum wait time in seconds
-
-        Returns:
-            Wait time in seconds
-        """
         import random
         wait = min(2 ** attempt, max_wait)
         jitter = random.uniform(0, wait * 0.5)
@@ -377,31 +331,15 @@ class LLM:
         model: Optional[str] = None,
         **kwargs: Any,
     ) -> str:
-        """Internal chat implementation. Guaranteed to return a string.
-
-        Args:
-            messages: Chat messages
-            model: Model ID (optional)
-            **kwargs: Additional parameters
-
-        Returns:
-            Response string (never None)
-        """
         client, actual_model = self._get_client(model)
-        #print(f"[DEBUG] _chat_impl: client={client}, actual_model={actual_model}")
 
-        # No client available
         if client is None:
-            #print("[DEBUG] _chat_impl: client 为 None, 返回 FALLBACK_MESSAGES['not_configured']")
             return FALLBACK_MESSAGES["not_configured"]
 
         config = self._model_configs.get(actual_model, ModelConfig(client_name="unknown"))
         max_tokens = kwargs.pop("max_tokens", config.max_tokens)
         temperature = kwargs.pop("temperature", config.temperature)
 
-        # ★★★ 打印实际请求 URL ★★★
-        #print(f"[DEBUG] _chat_impl: client.base_url = {client.base_url}")
-        #print(f"[DEBUG] _chat_impl: 请求 URL = {client.base_url}/chat/completions")
         _log(f"🔍 实际请求 URL: {client.base_url}/chat/completions")
 
         last_error: Optional[str] = None
@@ -409,7 +347,6 @@ class LLM:
         for attempt in range(self.max_retries):
             try:
                 _log(f"🔄 API call {attempt + 1}/{self.max_retries} → {actual_model}")
-                #print(f"[DEBUG] _chat_impl: 尝试 {attempt+1}/{self.max_retries}")
                 t0 = time.time()
 
                 task = asyncio.create_task(
@@ -433,12 +370,10 @@ class LLM:
                         await task
                     except (asyncio.CancelledError, Exception):
                         pass
-                    #print("[DEBUG] _chat_impl: 超时")
                     raise
 
                 elapsed = time.time() - t0
 
-                # Validate response
                 if (
                     response
                     and response.choices
@@ -446,8 +381,9 @@ class LLM:
                 ):
                     result = response.choices[0].message.content.strip()
                     if result:
+                        # ★★★ 剥离开头的 <think> 段 ★★★
+                        result = _strip_leading_think(result)
                         _log(f"✅ 成功 ({elapsed:.1f}s, {len(result)} chars)")
-                        #print(f"[DEBUG] _chat_impl: 成功, 返回 {len(result)} 字符")
                         return result
 
                 _log(f"⚠️ 空响应 ({elapsed:.1f}s)")
@@ -459,17 +395,13 @@ class LLM:
             except Exception as exc:
                 error_msg = str(exc)[:200]
                 _log(f"❌ 错误 attempt {attempt + 1}: {type(exc).__name__}: {error_msg[:100]}")
-                #print(f"[DEBUG] _chat_impl: 异常 {type(exc).__name__}: {error_msg}")
                 last_error = error_msg
 
-            # Don't sleep on last attempt
             if attempt < self.max_retries - 1:
                 wait = self._calculate_backoff(attempt)
                 _log(f"⏳ 等待 {wait:.1f}s 后重试...")
                 await asyncio.sleep(wait)
 
-        # All retries exhausted
-        # All retries exhausted
         if last_error == "timeout":
             return FALLBACK_MESSAGES["timeout"]
         elif last_error == "empty_response":
@@ -488,18 +420,6 @@ class LLM:
         role: Optional[str] = None,
         **kwargs: Any,
     ) -> str:
-        """Chat completion interface.
-
-        Args:
-            messages: List of message dicts with 'role' and 'content'
-            model: Direct model ID (highest priority)
-            role: Role-based model selection ("default", "coding", "reasoning")
-            **kwargs: Additional parameters passed to API
-
-        Returns:
-            Response string (guaranteed non-None, non-empty)
-        """
-        # Resolve model
         if model:
             resolved_model = model
         elif role:
@@ -508,13 +428,11 @@ class LLM:
             resolved_model = self.default_model
 
         _log(f"💬 chat: {resolved_model}" + (f" (role={role})" if role else ""))
-        #print(f"[DEBUG] chat: resolved_model={resolved_model}")
 
         try:
             async with self._semaphore:
                 result = await self._chat_impl(messages, resolved_model, **kwargs)
 
-                # Guarantee a valid string return
                 if result is None:
                     return FALLBACK_MESSAGES["system_error"]
                 if not isinstance(result, str):
@@ -538,35 +456,17 @@ class LLM:
         model: Optional[str] = None,
         **kwargs: Any,
     ) -> AsyncIterator[str]:
-        """Internal streaming implementation.
-
-        Args:
-            messages: Chat messages
-            model: Model ID
-            **kwargs: Additional parameters
-
-        Yields:
-            Text chunks
-        """
         client, actual_model = self._get_client(model)
-        #print(f"[DEBUG] _chat_stream_impl: client={client}, actual_model={actual_model}")
 
-        # No client available
         if client is None:
-            #print("[DEBUG] _chat_stream_impl: client 为 None")
             yield FALLBACK_MESSAGES["not_configured"]
             return
 
-        # ★★★ 打印实际请求 URL ★★★
-        #print(f"[DEBUG] _chat_stream_impl: client.base_url = {client.base_url}")
-        #print(f"[DEBUG] _chat_stream_impl: 请求 URL = {client.base_url}/chat/completions")
         _log(f"🔍 实际请求 URL: {client.base_url}/chat/completions")
 
         config = self._model_configs.get(actual_model, ModelConfig(client_name="unknown"))
 
-        # If streaming not supported, fall back to non-streaming
         if not config.supports_streaming:
-            #print("[DEBUG] _chat_stream_impl: 不支持流式, 降级到非流式")
             result = await self._chat_impl(messages, model, **kwargs)
             if result and not result.startswith("["):
                 yield result
@@ -581,7 +481,6 @@ class LLM:
             stream = None
             try:
                 _log(f"📡 stream {attempt + 1}/{self.max_retries} → {actual_model}")
-                #print(f"[DEBUG] _chat_stream_impl: 流式尝试 {attempt+1}/{self.max_retries}")
 
                 stream = await client.chat.completions.create(
                     model=actual_model,
@@ -592,17 +491,74 @@ class LLM:
                     **kwargs,
                 )
 
-                collected: List[str] = []
-                async for chunk in stream:
-                    if chunk.choices and chunk.choices[0].delta.content:
-                        token = chunk.choices[0].delta.content
-                        if token:
-                            collected.append(token)
-                            yield token
+                # ★★★ 流式剥离状态机 ★★★
+                #
+                # 状态：
+                #   in_think = None  → 还没决定，正在缓冲判断开头
+                #   in_think = True  → 已确认开头是 <think>，憋着等 </think>
+                #   in_think = False → 开头不是 <think>，正常流式吐
+                #
+                # 规则：
+                #   - 缓冲够 DECISION_LEN 字符后决定
+                #   - 进入 think 模式后，只认 </think>，不看 {
+                #   - 流结束还没见到 </think> → 视作失败，吐 [空响应]
+                #
+                buffer = ""
+                in_think = None
+                DECISION_LEN = 10
 
-                full_text = "".join(collected)
-                _log(f"✅ stream 完成: {len(full_text)} chars")
-                #print(f"[DEBUG] _chat_stream_impl: 流式完成, {len(full_text)} 字符")
+                async for chunk in stream:
+                    if not (chunk.choices and chunk.choices[0].delta.content):
+                        continue
+                    token = chunk.choices[0].delta.content
+                    if not token:
+                        continue
+
+                    buffer += token
+
+                    # 第一次判断：够长就决定
+                    if in_think is None and len(buffer) >= DECISION_LEN:
+                        if buffer.lstrip().startswith("<think>"):
+                            in_think = True
+                            _log("流式：检测到 <think> 开头，进入剥离模式")
+                        else:
+                            in_think = False
+
+                    # 不在 think 里：边流边吐
+                    if in_think is False:
+                        yield buffer
+                        buffer = ""
+                        continue
+
+                    # 在 think 里：只等 </think>
+                    if in_think is True:
+                        close_idx = buffer.find("</think>")
+                        if close_idx != -1:
+                            rest = buffer[close_idx + len("</think>"):].lstrip()
+                            buffer = rest
+                            in_think = False
+                            if buffer:
+                                yield buffer
+                                buffer = ""
+
+                # 流结束，处理残留
+                if in_think is None:
+                    # 总长度不够判断（很短的回复）
+                    if buffer:
+                        buffer = _strip_leading_think(buffer)
+                        if buffer:
+                            yield buffer
+
+                elif in_think is True:
+                    # 一直在 think 里没出来（</think> 从未出现）
+                    # → 视作失败，吐空响应
+                    _log("流式：流结束仍未见到 </think>，视作失败")
+                    yield FALLBACK_MESSAGES["empty"]
+
+                elif in_think is False and buffer:
+                    yield buffer
+
+                _log(f"✅ stream 完成")
                 return
 
             except asyncio.TimeoutError:
@@ -613,12 +569,10 @@ class LLM:
             except Exception as exc:
                 error_msg = str(exc)[:200]
                 _log(f"❌ stream 错误: {type(exc).__name__}: {error_msg[:100]}")
-                #print(f"[DEBUG] _chat_stream_impl: 异常 {type(exc).__name__}: {error_msg}")
                 if attempt == self.max_retries - 1:
                     yield f"[LLM stream error: {error_msg[:200]}]"
                     return
             finally:
-                # Always close stream to release resources
                 if stream is not None:
                     try:
                         await stream.close()
@@ -637,25 +591,12 @@ class LLM:
         role: Optional[str] = None,
         **kwargs: Any,
     ) -> AsyncIterator[str]:
-        """Streaming chat interface.
-
-        Args:
-            messages: List of message dicts
-            model: Direct model ID (highest priority)
-            role: Role-based model selection
-            **kwargs: Additional parameters
-
-        Yields:
-            Text chunks
-        """
         if model:
             resolved_model = model
         elif role:
             resolved_model = self._resolve_model(role)
         else:
             resolved_model = self.default_model
-
-        #print(f"[DEBUG] chat_stream: resolved_model={resolved_model}")
 
         async with self._semaphore:
             async for token in self._chat_stream_impl(
@@ -677,17 +618,6 @@ class LLM:
         role: Optional[str] = None,
         **kwargs: Any,
     ) -> Dict[str, Any]:
-        """JSON-formatted chat interface with automatic retry.
-
-        Args:
-            messages: List of message dicts
-            model: Direct model ID
-            role: Role-based model selection
-            **kwargs: Additional parameters
-
-        Returns:
-            Parsed JSON dict (or dict with error/parse_error keys)
-        """
         max_json_attempts = 3
         local_messages = list(messages)
 
@@ -699,13 +629,11 @@ class LLM:
                 **kwargs,
             )
 
-            # Check for error responses
             if raw.startswith("[") and raw.endswith("]"):
                 if attempt == max_json_attempts - 1:
                     return {"error": raw}
                 continue
 
-            # Try to extract and parse JSON
             cleaned = self._extract_json(raw)
 
             try:
@@ -715,7 +643,6 @@ class LLM:
                 if attempt == max_json_attempts - 1:
                     return {"content": cleaned, "parse_error": str(exc)}
 
-                # Add hint for retry
                 local_messages.append({
                     "role": "system",
                     "content": "请只返回有效的 JSON 格式，不要包含任何其他文本。",
@@ -725,17 +652,8 @@ class LLM:
 
     @staticmethod
     def _extract_json(raw: str) -> str:
-        """Extract JSON from markdown code blocks or raw text.
-
-        Args:
-            raw: Raw response text
-
-        Returns:
-            Cleaned JSON string
-        """
         cleaned = raw.strip()
 
-        # Remove ```json blocks
         if "```json" in cleaned:
             parts = cleaned.split("```json", 1)
             if len(parts) > 1:
@@ -752,11 +670,6 @@ class LLM:
     # ======================================================================
 
     async def health_check(self) -> bool:
-        """Check if any provider is reachable.
-
-        Returns:
-            True if at least one provider is healthy
-        """
         for name, client in self._clients.items():
             try:
                 await asyncio.wait_for(
