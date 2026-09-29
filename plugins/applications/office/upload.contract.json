@@ -1,0 +1,87 @@
+{
+  "plugin": "applications/office/upload",
+  "actions": {
+    "upload": {
+      "description": "上传本地文件并转换",
+      "params": [
+        {
+          "name": "file_path",
+          "required": false,
+          "type": "string",
+          "desc": "本地文件路径，默认为空字符串"
+        }
+      ],
+      "returns": [
+        {
+          "name": "error",
+          "type": "string",
+          "desc": "转换失败时的错误信息，成功时返回 converter 插件的 payload"
+        }
+      ],
+      "notes": "内部调用 applications/office/converter 插件进行文件转换，返回结构取决于 converter 插件",
+      "pitfalls": "file_path 为空时会传递空字符串给 converter，可能导致转换失败"
+    },
+    "fetch_url": {
+      "description": "通过 URL 获取网页并转换",
+      "params": [
+        {
+          "name": "url",
+          "required": false,
+          "type": "string",
+          "desc": "网页 URL 地址，默认为空字符串"
+        }
+      ],
+      "returns": [
+        {
+          "name": "error",
+          "type": "string",
+          "desc": "转换失败时的错误信息，成功时返回 web_converter 插件的 payload"
+        }
+      ],
+      "notes": "内部调用 applications/office/web_converter 插件进行网页转换，返回结构取决于 web_converter 插件",
+      "pitfalls": "url 为空时会传递空字符串给 web_converter，可能导致转换失败"
+    },
+    "download_zip": {
+      "description": "将 Markdown 内容和图片打包为 ZIP 文件供下载",
+      "params": [
+        {
+          "name": "md_content",
+          "required": false,
+          "type": "string",
+          "desc": "Markdown 文件内容，默认为空字符串"
+        },
+        {
+          "name": "original_name",
+          "required": false,
+          "type": "string",
+          "desc": "原始文件名，用于生成 ZIP 内的 md 文件名，默认 document"
+        },
+        {
+          "name": "images_dir",
+          "required": false,
+          "type": "string",
+          "desc": "图片目录路径，目录存在时将其中所有文件打包到 images/ 子目录，默认为空"
+        }
+      ],
+      "returns": [
+        {
+          "name": "static_content",
+          "type": "binary",
+          "desc": "ZIP 文件二进制内容，存于 envelop.meta 中"
+        },
+        {
+          "name": "content_type",
+          "type": "string",
+          "desc": "响应内容类型，值为 application/zip，存于 envelop.meta 中"
+        },
+        {
+          "name": "content_disposition",
+          "type": "string",
+          "desc": "下载响应头，格式为 attachment; filename=\"{stem}_md.zip\"，存于 envelop.meta 中"
+        }
+      ],
+      "notes": "返回数据存放在 envelop.meta 而非 envelop.payload 中",
+      "pitfalls": "images_dir 不存在或为空时不会报错，ZIP 包中只有 md 文件；临时 ZIP 文件创建后会尝试删除，删除失败静默忽略"
+    }
+  }
+}

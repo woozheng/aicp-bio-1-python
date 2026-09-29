@@ -1,0 +1,287 @@
+{
+  "plugin": "office/processor",
+  "actions": {
+    "summary": {
+      "description": "对文字进行摘要，提取核心要点，长度控制在原文的20%以内",
+      "params": [
+        {
+          "name": "text",
+          "required": true,
+          "type": "string",
+          "desc": "原始文字"
+        },
+        {
+          "name": "action",
+          "required": false,
+          "type": "string",
+          "desc": "处理动作，默认summary"
+        },
+        {
+          "name": "style",
+          "required": false,
+          "type": "string",
+          "desc": "风格：商务|学术|通俗|正式，默认正式"
+        }
+      ],
+      "returns": [
+        {
+          "name": "result",
+          "type": "string",
+          "desc": "摘要后的文字"
+        },
+        {
+          "name": "action",
+          "type": "string",
+          "desc": "执行的action名称"
+        },
+        {
+          "name": "error",
+          "type": "string",
+          "desc": "错误信息（出错时返回）"
+        }
+      ]
+    },
+    "abstract": {
+      "description": "为文字写论文/报告风格的摘要，100-200字，包含背景、方法、结论",
+      "params": [
+        {
+          "name": "text",
+          "required": true,
+          "type": "string",
+          "desc": "原始文字"
+        },
+        {
+          "name": "action",
+          "required": false,
+          "type": "string",
+          "desc": "处理动作，默认summary"
+        },
+        {
+          "name": "style",
+          "required": false,
+          "type": "string",
+          "desc": "风格：商务|学术|通俗|正式，默认正式"
+        }
+      ],
+      "returns": [
+        {
+          "name": "result",
+          "type": "string",
+          "desc": "摘要后的文字"
+        },
+        {
+          "name": "action",
+          "type": "string",
+          "desc": "执行的action名称"
+        },
+        {
+          "name": "error",
+          "type": "string",
+          "desc": "错误信息（出错时返回）"
+        }
+      ]
+    },
+    "expand": {
+      "description": "对文字进行扩写，增加细节和例证，按指定比例扩充",
+      "params": [
+        {
+          "name": "text",
+          "required": true,
+          "type": "string",
+          "desc": "原始文字"
+        },
+        {
+          "name": "action",
+          "required": false,
+          "type": "string",
+          "desc": "处理动作，默认summary"
+        },
+        {
+          "name": "style",
+          "required": false,
+          "type": "string",
+          "desc": "风格：商务|学术|通俗|正式，默认正式"
+        },
+        {
+          "name": "ratio",
+          "required": false,
+          "type": "number",
+          "desc": "扩写比例，默认2"
+        }
+      ],
+      "returns": [
+        {
+          "name": "result",
+          "type": "string",
+          "desc": "扩写后的文字"
+        },
+        {
+          "name": "action",
+          "type": "string",
+          "desc": "执行的action名称"
+        },
+        {
+          "name": "error",
+          "type": "string",
+          "desc": "错误信息（出错时返回）"
+        }
+      ]
+    },
+    "polish": {
+      "description": "润色文字，优化表达，修正语法，保持原意",
+      "params": [
+        {
+          "name": "text",
+          "required": true,
+          "type": "string",
+          "desc": "原始文字"
+        },
+        {
+          "name": "action",
+          "required": false,
+          "type": "string",
+          "desc": "处理动作，默认summary"
+        },
+        {
+          "name": "style",
+          "required": false,
+          "type": "string",
+          "desc": "风格：商务|学术|通俗|正式，默认正式"
+        }
+      ],
+      "returns": [
+        {
+          "name": "result",
+          "type": "string",
+          "desc": "润色后的文字"
+        },
+        {
+          "name": "action",
+          "type": "string",
+          "desc": "执行的action名称"
+        },
+        {
+          "name": "error",
+          "type": "string",
+          "desc": "错误信息（出错时返回）"
+        }
+      ]
+    },
+    "translate": {
+      "description": "将文字翻译成指定目标语言，准确流畅符合目标语言表达习惯",
+      "params": [
+        {
+          "name": "text",
+          "required": true,
+          "type": "string",
+          "desc": "原始文字"
+        },
+        {
+          "name": "action",
+          "required": false,
+          "type": "string",
+          "desc": "处理动作，默认summary"
+        },
+        {
+          "name": "target_lang",
+          "required": false,
+          "type": "string",
+          "desc": "目标语言，默认中文"
+        }
+      ],
+      "returns": [
+        {
+          "name": "result",
+          "type": "string",
+          "desc": "翻译后的文字"
+        },
+        {
+          "name": "action",
+          "type": "string",
+          "desc": "执行的action名称"
+        },
+        {
+          "name": "error",
+          "type": "string",
+          "desc": "错误信息（出错时返回）"
+        }
+      ]
+    },
+    "outline": {
+      "description": "为文字生成PPT大纲，每页一个主题，包含标题和要点",
+      "params": [
+        {
+          "name": "text",
+          "required": true,
+          "type": "string",
+          "desc": "原始文字"
+        },
+        {
+          "name": "action",
+          "required": false,
+          "type": "string",
+          "desc": "处理动作，默认summary"
+        }
+      ],
+      "returns": [
+        {
+          "name": "result",
+          "type": "string",
+          "desc": "PPT大纲内容"
+        },
+        {
+          "name": "action",
+          "type": "string",
+          "desc": "执行的action名称"
+        },
+        {
+          "name": "error",
+          "type": "string",
+          "desc": "错误信息（出错时返回）"
+        }
+      ]
+    },
+    "ppt_ready": {
+      "description": "将文字转换成可直接用于PPT的格式，每页用===SLIDE===分隔，包含标题和3-5个要点",
+      "params": [
+        {
+          "name": "text",
+          "required": true,
+          "type": "string",
+          "desc": "原始文字"
+        },
+        {
+          "name": "action",
+          "required": false,
+          "type": "string",
+          "desc": "处理动作，默认summary"
+        },
+        {
+          "name": "style",
+          "required": false,
+          "type": "string",
+          "desc": "风格：商务|学术|通俗|正式，默认正式"
+        }
+      ],
+      "returns": [
+        {
+          "name": "result",
+          "type": "string",
+          "desc": "PPT格式的文字内容"
+        },
+        {
+          "name": "action",
+          "type": "string",
+          "desc": "执行的action名称"
+        },
+        {
+          "name": "error",
+          "type": "string",
+          "desc": "错误信息（出错时返回）"
+        }
+      ],
+      "notes": "help函数未列出此action，但代码中prompts字典包含ppt_ready",
+      "pitfalls": "action参数不在help的input列表中，但实际支持该action"
+    }
+  }
+}

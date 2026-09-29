@@ -1,0 +1,40 @@
+{
+  "plugin": "mind_generate",
+  "actions": {
+    "generate": {
+      "description": "AI 生成标准思维导图结构",
+      "params": [
+        {
+          "name": "text",
+          "required": true,
+          "type": "string",
+          "desc": "用户输入的主题内容"
+        }
+      ],
+      "returns": [
+        {
+          "name": "tree",
+          "type": "object",
+          "desc": "思维导图树形结构，根节点包含 text 和 children 字段"
+        },
+        {
+          "name": "tree.text",
+          "type": "string",
+          "desc": "节点文本内容"
+        },
+        {
+          "name": "tree.children",
+          "type": "array",
+          "desc": "子节点数组，每个子节点同样包含 text 和 children 字段"
+        },
+        {
+          "name": "error",
+          "type": "string",
+          "desc": "错误信息，仅在失败时返回"
+        }
+      ],
+      "notes": "当 agent.llm 不可用时，返回固定的三层示例结构（3个子主题，每个子主题2个细节）",
+      "pitfalls": "text 参数虽然用 get 方式获取且默认空字符串，但为空时立即返回 error，实际为必填参数"
+    }
+  }
+}

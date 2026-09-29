@@ -66,6 +66,7 @@ plugins/*
 # 但保留这两个子目录
 !plugins/builtins/
 !plugins/os/
+!plugins/applications/
 
 backups/
 data/memories/main_agent/testtoken_flow_backup*
