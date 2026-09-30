@@ -267,14 +267,28 @@ async def main():
         system.start_gui()
         logger.info("GUI: ready")
 
+    import time
+
     def listen_stdin():
+        if sys.platform == "win32":
+            import msvcrt
+            def _check():
+                if msvcrt.kbhit():
+                    return msvcrt.getwch()
+                return None
+        else:
+            import select
+            def _check():
+                r, _, _ = select.select([sys.stdin], [], [], 0)
+                if r:
+                    return sys.stdin.read(1)
+                return None
+
         while not stop_event.is_set():
-            try:
-                line = sys.stdin.readline()
-                if line.strip().lower() in ("quit", "exit", "q"):
-                    shutdown()
-            except EOFError:
-                break
+            ch = _check()
+            if ch and ch.lower() in ("q", "Q"):
+                shutdown()
+            time.sleep(0.1)
 
     threading.Thread(target=listen_stdin, daemon=True).start()
 
