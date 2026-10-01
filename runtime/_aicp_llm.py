@@ -997,47 +997,33 @@ class NoMemoryCodeExecutor:
             )
 
         # ============================================================
-        # === 真正执行（三层防护）===
-        # 第 1 层：AST 静态检测（已在前面做了）
-        # 第 2 层：sys.settrace 运行时超时（拦纯 Python 死循环）
-        # 第 3 层：asyncio.wait_for 超时（拦 await 阻塞）
+        # === 真正执行（两层防护）===
+        # 第 1 层：AST 静态检测（已在前面做了）—— 拦 while True / time.sleep / input
+        # 第 2 层：asyncio.wait_for 超时 —— 拦 await 阻塞 / 长时间运行
+        #
+        # 注意：已移除 sys.settrace。
+        # 原因：sys.settrace 是线程级的，会影响整个线程（包括 asyncio 事件循环），
+        #       导致事件循环内部抛出 TimeoutError，使整个进程崩溃。
+        #       AST 预检 + asyncio.wait_for 已覆盖绝大多数情况。
         # ============================================================
-
-        tracer = _build_timeout_tracer(DEFAULT_TIMEOUT_SECONDS)
-        old_trace = sys.gettrace()
-        sys.settrace(tracer)
 
         try:
             ret = await asyncio.wait_for(
                 execute_fn(envelop, agent),
-                timeout=DEFAULT_TIMEOUT_SECONDS + 5,  # 略大于 trace 超时
+                timeout=DEFAULT_TIMEOUT_SECONDS,
             )
 
         except asyncio.TimeoutError:
-            # 第 3 层：asyncio 超时（拦 await 阻塞）
             return self._build_error_result(
                 category="LLM_CODE",
                 summary="执行超时",
-                reason=f"代码执行超过 {DEFAULT_TIMEOUT_SECONDS} 秒（asyncio 层拦截）",
+                reason=f"代码执行超过 {DEFAULT_TIMEOUT_SECONDS} 秒",
                 detail=(
                     "可能原因：\n"
                     "  - 代码里有 await 长时间阻塞\n"
+                    "  - 代码里有死循环\n"
                     "  - 代码里有同步阻塞（如 time.sleep），导致事件循环卡住\n"
                     "请检查代码，避免长时间阻塞。"
-                ),
-                raw_code=raw_code,
-                sanitized_code=sanitized_code,
-            )
-
-        except TimeoutError as e:
-            # 第 2 层：sys.settrace 超时（拦纯 Python 死循环）
-            return self._build_error_result(
-                category="LLM_CODE",
-                summary="执行超时（trace 触发）",
-                reason=str(e),
-                detail=(
-                    "代码执行超过限制时间，可能是死循环或大量计算。\n"
-                    "请改用有限循环，并控制单次执行时长。"
                 ),
                 raw_code=raw_code,
                 sanitized_code=sanitized_code,
@@ -1070,10 +1056,6 @@ class NoMemoryCodeExecutor:
                 raw_code=raw_code,
                 sanitized_code=sanitized_code,
             )
-
-        finally:
-            # 无论如何，恢复原来的 trace
-            sys.settrace(old_trace)
 
         # === 返回值校验 ===
         if not isinstance(ret, dict):
