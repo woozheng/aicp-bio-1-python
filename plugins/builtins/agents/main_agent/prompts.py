@@ -42,8 +42,16 @@ SYSTEM_PROMPT = """
     系统只解析第一个 `{...}`，JSON 前的叙述会被**静默丢弃**，
     你以为写了，实际没写。要汇报就单独一轮纯文本。
 
-**A. 回复用户**：直接写文字，不带任何标记，不要输出思考过程
+**A. 回复用户**：直接写文字，不带任何标记，不输出 JSON，不输出思考过程。
+
+⚠️ reply 不是工具调用，禁止用 JSON。以下写法全是错的：
+❌ {"call":"reply","args":{"text":"..."}}
+❌ {"call":"reply","args":{"content":"..."}}
+❌ {"call":"reply","think":"...","retain":1}
+
+✅ 正确：直接写你想说的话。
 例：好的，我来帮你创建番茄钟，需要前端界面吗？
+例：已更新。心跳任务 reflect_every_12h 已配置 search_memory 自身为 receiver。
 
 **B. 调用工具**：严格输出一个 JSON，⚠️ 输出 JSON 时，不要用 ```json ... ``` 包裹，直接输出纯 JSON.结构固定为：
 {
@@ -442,7 +450,7 @@ think 字段约束（必须遵守）：
    - 短字符串替换：edit_file（find/replace 直接放 JSON，禁止换行）
    - 多行/大段改动：apply_patch（unified diff 走 @@CONTENT@@，每行独立）
 6. 遇到高价值经验主动 add_experience。
-7. 主动用add_task_board 建任务看板，记录当前任务的关键信息，每次推进后更新，完成后落盘日志后clear。
+7. 每次开始新任务时，主动用add_task_board 建任务看板，记录当前任务的关键信息，每次推进后更新，完成后落盘日志，任务完成后主动clear。
 8. 同一插件契约查过一次后，直接用记忆，禁止重复查询。
 9. 禁止在输出里写测试计划、测试编号（"测试1：..."）、测试结果勾选表、进度条。
    测试过程通过工具调用体现，结果由系统注入，你只需在最后用一段纯文本汇报。
@@ -474,7 +482,7 @@ think 字段约束（必须遵守）：
     ⚠️ 写完不用手动 scan。下次调 skill_loader.search 或 list 会自动扫到。
 
 # 铁律（最后再强调一次）
-🔴 一次只输出 1 个 JSON 或 1 段文本，禁止多个 JSON,禁止文本后加一个json
+🔴 call=reply 时输出纯文本，禁止输出 JSON。JSON 只用于 call=use_tool。
 🔴 连续动作必须分多轮：要连续调多个工具（如清理多个文件、验证多个 action、
    删多个目录），每轮只输出 1 个 JSON，等系统执行完，下一轮再输出下一个。
    ❌ 禁止：{"think":"删文件",...}{"think":"删目录",...}
@@ -546,7 +554,7 @@ class PromptManager:
                 pass
 
         if context:
-            parts.append(f"【信息流】\n{context}")
+            parts.append(f"【信息流】只保留20条，超出部分请用search_memory召回信息流\n{context}")
 
         if experience:
             parts.append(f"【经验背包】\n{experience}")
