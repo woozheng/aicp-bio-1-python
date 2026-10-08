@@ -38,7 +38,7 @@ SYSTEM_PROMPT = """
     ❌ 禁止：先写"重新测试..."、"接下来..."、"上一步失败..."，再跟 JSON
     ❌ 禁止：JSON 后面再写"继续测试..."之类的收尾叙述
     ✅ 正确：输出就是 `{"think":...}` 开头，`}` 结尾，前后无任何文字
-    
+
     系统只解析第一个 `{...}`，JSON 前的叙述会被**静默丢弃**，
     你以为写了，实际没写。要汇报就单独一轮纯文本。
 
@@ -153,6 +153,45 @@ think 字段约束（必须遵守）：
   "retain": 3,
   "args": {"target":"builtins/tools/aicp_chat","params":{"task":"详细任务描述"}}
 }
+成功：
+{
+  "ok": true,
+  "data": "执行结果...",
+  "artifact": "logs/code_cleaned_20251008_143022.py"
+}
+
+失败：
+{
+  "ok": false,
+  "error": "【错误分类】LLM_CODE\n【一句话】...\n【原因】...",
+  "error_category": "LLM_CODE",
+  "artifact": "logs/llm_errors/error_20251008_143022.txt",
+  "aborted": false
+}
+
+───────────────────────────────────────
+【artifact 是什么】
+───────────────────────────────────────
+- 一个文件路径，相对项目根目录,aicp_chat完成task生成的code代码文件
+- 成功时指向最后执行成功的代码文件（.py）
+- 失败时指向最后一次的错误报告（.txt）
+- 路径可直接传给 os/file_utils_api 的 read_file
+- 当返回结果符合task预期不需要读 artifact。如和预期有偏差，可以读取artifact，分析后调整task描述。
+
+───────────────────────────────────────
+【失败时怎么办】
+───────────────────────────────────────
+1. 先看 error 字段，它包含错误分类、原因、处理建议
+2. error_category 含义：
+   - LLM_CODE      → 代码写错了，改代码重试
+   - SANDBOX_BLOCK → 用了沙箱禁止的操作，换实现方式
+   - RUNTIME_INTERNAL → runtime 内部问题，不要改代码，直接告知用户
+3. aborted=true 表示系统已终止重试，不要再调 aicp_chat
+4. 需要看完整错误报告或上一轮代码时，用 read_file 读 artifact：
+   {"call":"use_tool","args":{"target":"os/file_utils_api","action":"read_file","params":{"path":"logs/llm_errors/error_xxx.txt"}}}
+5. 读完后调整 task，重新调 aicp_chat
+6. 连续 2 次相同错误，直接 reply 用户"无法完成"
+
 
 **contract_agent**（查契约，action 在顶层）：
 {
@@ -309,11 +348,11 @@ think 字段约束（必须遵守）：
 ⚠️ skill_id 是"路径派生的 ID"，不是目录名。
    - 技能文件：data/skills/aicp/apply_patch_skill/SKILL.md
    - skill_id：aicp_apply_patch_skill（父目录_目录名，全小写）
-   
+
    如果不确定 skill_id：
    - 直接传模糊名（如 "apply_patch_skill"），load 会自动模糊匹配
    - 或先 search 拿到精确 ID，再 load
-   
+
 ⚠️ 新写的技能不会立刻出现在索引里。写技能后要加载：
    - 先调 skill_loader.scan 重建索引
    - 或直接 search（search 前会自动 scan）
@@ -416,7 +455,7 @@ think 字段约束（必须遵守）：
 
    ⚠️ 不要用 use_tool 直接调 builtins/agents/main_agent。
       要开分身，统一走 task_manager。
-   ⚠️ 不要自己拼 session_id / callback_receiver / _task_id，task_manager 全权处理。  
+   ⚠️ 不要自己拼 session_id / callback_receiver / _task_id，task_manager 全权处理。
 5. 一次性任务 → aicp_chat 兜底
 
 # 系统认知
@@ -473,11 +512,11 @@ think 字段约束（必须遵守）：
     - 工具有明确顺序（有依赖关系）
     - 任务顺利完成，没走弯路
     - 未来可能遇到类似任务
-    
+
     沉淀方式：write_file 写一个 SKILL.md 到 data/skills/aicp/{skill_id}/SKILL.md。
     格式：frontmatter（title/description/tags）+ 正文（适用场景/工作流程）。
     参数用 {xxx} 占位。
-    
+
     ⚠️ 不是每个任务都要沉淀。只在"明显值得复用"时才写。
     ⚠️ 写完不用手动 scan。下次调 skill_loader.search 或 list 会自动扫到。
 
@@ -505,7 +544,7 @@ think 字段约束（必须遵守）：
 🔴 禁止 <think> 标签（XML 标签），think 是 JSON 字段。
 🔴 禁止输出代码块、原生 function 调用格式。
 🔴 技能加载后，你就是那个技能的角色。直接以角色身份回复用户或者执行相应的SKILL，
-🔴 临时文件的默认工作目录： data/workspace 
+🔴 临时文件的默认工作目录： data/workspace
 
 
 """
@@ -583,5 +622,5 @@ class PromptManager:
             hint = "警告：执行深度过高接近上限，整理原因，准备收尾，总结替换任务看板，及时回复用户。"
 
         parts.append(f"【当前递归执行】\n当前时间：{current_time}\n执行深度：{depth}/40 - {hint}\n")
-       
+
         return "\n\n".join(parts)

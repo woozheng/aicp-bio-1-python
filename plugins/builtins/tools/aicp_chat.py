@@ -1,11 +1,12 @@
 # plugins/builtins/aicp/chat.py
 """AICP Chat API — 远端 chatEnvelop 端点 / 能力探测 / 兜底工具"""
 
+import json
 import platform
 import subprocess
-import requests as _requests
-import json
+from typing import Any  # ★ 新增
 
+import requests as _requests
 from core import Envelop
 from runtime._aicp_llm import AICP_LLM
 
@@ -25,12 +26,12 @@ async def execute(envelop, agent):
     # ★★★ 支持两种调用方式 ★★★
     # 方式1：直接传 messages
     messages = envelop.payload.get("messages")
-    
+
     # 方式2：传 task（main_agent 的 aicp_chat 调用方式）
     task = envelop.payload.get("task", "")
     if not messages and task:
         messages = [{"role": "user", "content": task}]
-    
+
     # 方式3：从 payload 里取（兼容旧格式）
     if not messages:
         messages = envelop.payload.get("payload", {}).get("messages", [])
@@ -45,33 +46,48 @@ async def execute(envelop, agent):
     temperature = envelop.payload.get("temperature")
     max_iter = envelop.payload.get("max_iter", 5)
 
+    # ★ session_id 双保险：meta 优先，payload 兜底
+    session_id = ""
+    if getattr(envelop, "meta", None):
+        session_id = envelop.meta.get("session_id", "")
+    if not session_id:
+        session_id = envelop.payload.get("session_id", "")
+
     if not hasattr(agent, 'aicp_llm'):
         agent.aicp_llm = AICP_LLM(agent.config)
+    # 把 session_id 传给 chatEnvelop（用于错误日志里记录 Session）
+    # AICP_LLM.chatEnvelop 接受 **kwargs，会透传到错误日志
 
     result = await agent.aicp_llm.chatEnvelop(
         messages,
         model=model,
         role="code",
         temperature=temperature,
-        max_iter=max_iter
+        max_iter=max_iter,
+        session_id=session_id,          # ★ 透传 session_id
     )
 
-    payload = result.payload if hasattr(result, 'payload') else result
-    
+    payload: Any = result.payload if hasattr(result, 'payload') else result   # ★ 加 : Any
+
     # ★★★ 提取返回数据 ★★★
     data = payload.get("data", "")
     error = payload.get("error", "")
-    
+    artifact = payload.get("artifact", "")       # ★ 新增：文件路径
+    error_category = payload.get("error_category", "")   # ★ 新增：错误分类
+    aborted = payload.get("aborted", False)      # ★ 新增：是否终止重试
+
     # 如果 data 是 dict，转成 JSON 字符串
     if isinstance(data, (dict, list)):
         data = json.dumps(data, ensure_ascii=False, indent=2)
-    
     return Envelop(
         receiver=envelop.sender,
         payload={
             "ok": payload.get("ok", True),
             "data": data,
-            "error": error
+            "error": error,
+            "artifact": artifact,                 # ★ 新增
+            "error_category": error_category,     # ★ 新增
+            "aborted": aborted,                   # ★ 新增
         }
     )
 
@@ -143,6 +159,9 @@ def help():
         "output": {
             "ok": "是否成功",
             "data": "执行结果",
-            "error": "错误信息"
+            "error": "错误信息",
+            "artifact": "落盘文件路径（成功=代码文件，失败=错误文件）",
+            "error_category": "错误分类（LLM_CODE / SANDBOX_BLOCK / RUNTIME_INTERNAL）",
+            "aborted": "是否终止重试（runtime 内部错误或沙箱错误超限）"
         }
     }

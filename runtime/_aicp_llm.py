@@ -34,7 +34,8 @@ from runtime._llm import LLM
 # 日志
 # ============================================================
 
-LOG_DIR = Path(__file__).parent.parent / "logs"
+PROJECT_ROOT = Path(__file__).parent.parent          # ★ 新增：项目根
+LOG_DIR = PROJECT_ROOT / "logs"                        # ★ 改为基于 PROJECT_ROOT
 LOG_DIR.mkdir(exist_ok=True)
 
 logger = logging.getLogger("aicp.runtime")
@@ -159,6 +160,12 @@ SYSTEM_PROMPT_APPEND = """### 运行环境重要说明
 7. 禁止使用 print()，所有输出必须通过 return {"data": ...} 返回。
 8. 临时默认成果落盘 data/workspace 需判断目录是否存在，没有则自动建立,用户有指定输出目录的优先
 9. 禁止 time.sleep()，需要等待用 await asyncio.sleep(N)。禁止 input()。禁止 while True。执行超时 60 秒。
+10. ★ 需要执行外部命令（编译、运行程序、调用 CLI）时：
+    - 用 await run_async(cmd, timeout=30, cwd=None) —— 异步执行，不阻塞事件循环
+    - cmd 是列表，如 ["go", "build", "-o", "hello.exe", "hello.go"]
+    - 返回 {"returncode": int, "stdout": str, "stderr": str}
+    - 禁止用 subprocess.Popen（沙箱禁止）
+    - 禁止用同步 subprocess.run 执行耗时命令（会阻塞事件循环），除非命令很快（<1秒）
 """
 
 AICP_SYSTEM_PROMPT: str = """## 你是 AICP 协议运行时。你是执行者，不是助手。
@@ -399,9 +406,6 @@ def minimal_sanitize_code(raw_text: str):
     return original, s
 
 
-
-
-
 def ast_detect_blocking(tree: ast.AST) -> Optional[str]:
     """AST 静态检测死循环和阻塞调用"""
     for node in ast.walk(tree):
@@ -414,12 +418,17 @@ def ast_detect_blocking(tree: ast.AST) -> Optional[str]:
         # 阻塞调用
         if isinstance(node, ast.Call):
             func = node.func
-            # time.sleep(...) / sleep(...)
+
+            # time.sleep(...) —— 只抓 time.sleep，放行 asyncio.sleep
             if isinstance(func, ast.Attribute) and func.attr == "sleep":
-                return "time.sleep"
-            if isinstance(func, ast.Name) and func.id == "sleep":
-                return "sleep"
-            # input()
+                # 只有明确是 time.sleep 才抓
+                if isinstance(func.value, ast.Name) and func.value.id == "time":
+                    return "time.sleep"
+                # asyncio.sleep / 其他 obj.sleep → 放行
+                continue
+
+            # 裸 sleep(...) —— 不抓（无法确定是 time.sleep 还是 asyncio.sleep）
+            # 裸 input() —— 抓
             if isinstance(func, ast.Name) and func.id == "input":
                 return "input"
 
@@ -610,6 +619,7 @@ class ExecutionResult:
     raw_llm_code: str = ""
     sanitized_code: str = ""
     error_category: str = ""   # LLM_CODE / SANDBOX_BLOCK / RUNTIME_INTERNAL / SYSTEM
+    artifact: str = ""         # ★ 新增：成功=代码文件路径，失败=错误文件路径
 
     def to_dict(self) -> Dict[str, Any]:
         result: Dict[str, Any] = {"ok": self.ok}
@@ -619,6 +629,8 @@ class ExecutionResult:
             result["error"] = self.error
         if self.error_category:
             result["error_category"] = self.error_category
+        if self.artifact:                                    # ★ 新增
+            result["artifact"] = self.artifact
         return result
 
     @property
@@ -669,6 +681,7 @@ def _check_pipeline(cmd: str):
                 f"允许的管道命令：{', '.join(sorted(PIPE_SAFE_COMMANDS))}"
             )
 
+
 # ============================================================
 # 超时 trace（运行时检测）
 # ============================================================
@@ -689,6 +702,7 @@ def _build_timeout_tracer(timeout_seconds: float):
         return trace_func
 
     return trace_func
+
 
 class NoMemoryCodeExecutor:
     def __init__(self, agent: Optional[Agent] = None):
@@ -800,6 +814,91 @@ class NoMemoryCodeExecutor:
             return result.stdout or ""
 
         # ============================================================
+        # ★ 安全异步子进程（不阻塞事件循环）
+        # ============================================================
+        async def _safe_async_subprocess(cmd, timeout=DEFAULT_SUBPROCESS_TIMEOUT, cwd=None):
+            """安全的异步子进程：不阻塞事件循环，有超时，有沙箱校验
+
+            Args:
+                cmd: 命令，字符串或列表
+                timeout: 超时秒数，默认 30，最大 300
+                cwd: 工作目录
+
+            Returns:
+                dict: {"returncode": int, "stdout": str, "stderr": str}
+            """
+            import platform as _platform
+
+            # 超时上限
+            if timeout > 300:
+                raise ValueError(f"Timeout {timeout}s exceeds maximum 300s")
+
+            # 构建命令列表
+            if isinstance(cmd, str):
+                _check_dangerous_command(cmd)
+                if "|" in cmd:
+                    _check_pipeline(cmd)
+                for c in (">", "<", "`", "$", ";", "&"):
+                    if c in cmd:
+                        raise SandboxBlockError(
+                            f"run_async 字符串命令中不允许 `{c}`。\n"
+                            f"替代写法：\n"
+                            f"  - 重定向到文件：在 Python 里 open() 写\n"
+                            f"  - 读取文件：在 Python 里 open() 读\n"
+                            f"  - 管道：用 | 且命令在安全白名单内\n"
+                            f"  - 多命令：拆成多次 run_async 调用"
+                        )
+                # Windows 上用字符串会出错，转列表
+                if _platform.system() == "Windows":
+                    cmd_list = cmd.split()
+                else:
+                    cmd_list = cmd.split()
+            elif isinstance(cmd, list):
+                for part in cmd:
+                    if isinstance(part, str):
+                        _check_dangerous_command(part)
+                cmd_list = cmd
+            else:
+                raise SandboxBlockError("run_async 命令必须是字符串或列表")
+
+            if not cmd_list:
+                raise SandboxBlockError("run_async 命令不能为空")
+
+            # 创建异步子进程
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    *cmd_list,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                    cwd=cwd,
+                )
+            except FileNotFoundError:
+                raise SandboxBlockError(f"命令不存在: {cmd_list[0]}")
+            except Exception as e:
+                raise SandboxBlockError(f"启动子进程失败: {e}")
+
+            # 等待完成，带超时
+            try:
+                stdout, stderr = await asyncio.wait_for(
+                    proc.communicate(), timeout=timeout
+                )
+                return {
+                    "returncode": proc.returncode,
+                    "stdout": stdout.decode("utf-8", errors="replace") if stdout else "",
+                    "stderr": stderr.decode("utf-8", errors="replace") if stderr else "",
+                }
+            except asyncio.TimeoutError:
+                # 超时，杀掉进程
+                try:
+                    proc.kill()
+                    await proc.wait()
+                except Exception:
+                    pass
+                raise SandboxBlockError(
+                    f"run_async 子进程超时（{timeout}秒），已终止"
+                )
+
+        # ============================================================
         # ★ 安全 fetch
         # ============================================================
         def _safe_fetch(url: str, timeout: int = 15) -> str:
@@ -826,6 +925,7 @@ class NoMemoryCodeExecutor:
             "BeautifulSoup": _bs4.BeautifulSoup,
             "re": __import__("re"),
             "run": _safe_run,
+            "run_async": _safe_async_subprocess,
             "fetch": _safe_fetch,
             "subprocess": SubprocessProxy,
             "print": _noop_print,
@@ -1299,6 +1399,9 @@ class AICP_LLM:
             code_log.write_text(code, encoding="utf-8")
             logger.info(f"✅ 代码已保存: {code_log}")
 
+            # ★ 本次迭代的 artifact 路径（相对项目根）
+            code_artifact = str(code_log.relative_to(PROJECT_ROOT))
+
             # === 提取并安装依赖 ===
             packages = extract_packages(raw)
             if packages:
@@ -1356,6 +1459,7 @@ class AICP_LLM:
 
             # === 执行成功 ===
             if result.ok:
+                result.artifact = code_artifact           # ★ 成功 → 代码文件
                 return Envelop(receiver="user", payload=result.to_dict())
 
             # === 写错误日志 ===
@@ -1376,6 +1480,9 @@ class AICP_LLM:
             )
             logger.error(f"❌ 执行失败 [{result.error_category}]，日志: {error_file}")
 
+            # ★ 失败 → 错误文件路径
+            result.artifact = str(error_file.relative_to(PROJECT_ROOT))
+
             # === 判断：runtime 内部错误 → 直接终止 ===
             if not result.fixable_by_llm:
                 logger.error("Runtime internal error, aborting retry loop.")
@@ -1385,6 +1492,7 @@ class AICP_LLM:
                         "ok": False,
                         "error": result.error,
                         "error_category": result.error_category,
+                        "artifact": result.artifact,          # ★ 带上
                         "aborted": True,
                     },
                 )
@@ -1412,6 +1520,7 @@ class AICP_LLM:
                                 f"最后一次错误：\n{result.error}"
                             ),
                             "error_category": result.error_category,
+                            "artifact": result.artifact,       # ★ 带上
                             "aborted": True,
                         },
                     )
