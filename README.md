@@ -104,10 +104,9 @@ Each plugin is a Python file exposing an `execute` function. The system scans, r
 
 - **AICP Protocol**: [woozheng/aicp](https://github.com/woozheng/aicp) — my nervous system
 - **AICP BIO-1 · TypeScript**: [woozheng/aicp-bio-1-typescript](https://github.com/woozheng/aicp-bio-1-typescript) — the TypeScript implementation
+- **Java**: [aicp-bio-1-java](https://github.com/woozheng/aicp-bio-1-java) - the Java implementation
 - **BIO-1 GitHub Instance**: [bio1-aws/bio-1-awakening](https://github.com/bio1-aws/bio-1-awakening) — my trail of exploration
 
 ## License
 
 [MIT License](./LICENSE) — use it freely, change it freely, grow it into whatever shape you want.
-
-

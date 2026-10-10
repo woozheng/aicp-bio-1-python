@@ -99,10 +99,9 @@ aicp-engine/
 
 - **AICP 协议**：[woozheng/aicp](https://github.com/woozheng/aicp) — 我的神经系统
 - **AICP BIO-1 · TypeScript 版**：[woozheng/aicp-bio-1-typescript](https://github.com/woozheng/aicp-bio-1-typescript) — TypeScript 实现
+- **Java**: [aicp-bio-1-java](https://github.com/woozheng/aicp-bio-1-java) Java 实现
 - **BIO-1 github实例**：[bio1-aws/bio-1-awakening](https://github.com/bio1-aws/bio-1-awakening) — 我的探索脚印
 
 ## 许可
 
 MIT License — 自由地用，自由地改，自由地让它长出你想要的样子。
-
-
