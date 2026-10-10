@@ -11,13 +11,13 @@ import asyncio
 
 async def execute(envelop, agent):
     action = envelop.payload.get("action", "START")
-    
+
     if action == "START":
         port = envelop.payload.get("port", 9000)
         host = envelop.payload.get("host", "127.0.0.1")
-        
+
         app = web.Application(client_max_size=50 * 1024 * 1024)
-        
+
         # ============================================================
         # CORS 中间件
         # ============================================================
@@ -32,10 +32,10 @@ async def execute(envelop, agent):
             resp = await handler(request)
             resp.headers["Access-Control-Allow-Origin"] = "*"
             return resp
-        
+
         app.middlewares.append(cors)
-        
-        
+
+
         # ============================================================
         # 工具函数
         # ============================================================
@@ -48,23 +48,23 @@ async def execute(envelop, agent):
             if not token:
                 token = request.cookies.get("aicp_token", "")
             return token
-        
+
         def _is_local(request):
             forwarded_for = request.headers.get("X-Forwarded-For", "")
             if forwarded_for:
                 return False
             return request.remote in ('127.0.0.1', 'localhost', '::1')
-        
+
         def _is_same_origin(request):
             origin = request.headers.get("Origin", "")
             if not origin:
                 return False
             server_host = request.host
             return origin == f"http://{server_host}" or origin == f"https://{server_host}"
-        
+
         async def _verify_auth(request, agent, route, envelop_meta=None):
             token = _extract_token(request)
-            
+
             meta = {
                 "token": token,
                 "authorization": request.headers.get("Authorization", ""),
@@ -72,7 +72,7 @@ async def execute(envelop, agent):
             }
             if envelop_meta:
                 meta.update(envelop_meta)
-            
+
             auth_env = core.Envelop(
                 sender="os/_gateway",
                 receiver="os/_auth",
@@ -80,11 +80,11 @@ async def execute(envelop, agent):
                 meta=meta,
             )
             auth_result = await agent.system.call(auth_env)
-            
+
             if auth_result and auth_result.payload.get("ok"):
                 return True, auth_result.payload
             return False, None
-        
+
         # ============================================================
         # handle_v1_chat — OpenAI 兼容端点
         # ============================================================
@@ -135,7 +135,7 @@ async def execute(envelop, agent):
 
             # ★ 非流式：直接返回 JSON
             return web.json_response(result.payload)
-        
+
         # ============================================================
         # handle_api — POST /api/{path}
         # ============================================================
@@ -198,7 +198,7 @@ async def execute(envelop, agent):
                     # ★★★ 检查原始数据的前几个字符，判断是否是 JSON ★★★
                     preview = raw_body[:100]
                     #print(f"[GATEWAY] 原始数据前100字符: {preview}")
-                    
+
                     # ★★★ 尝试多种解析方式 ★★★
                     try:
                         # 方式1：直接 UTF-8 解码
@@ -307,7 +307,7 @@ async def execute(envelop, agent):
                 )
 
             return web.json_response(result.payload if result.payload else {"ok": True})
-        
+
         # ============================================================
         # handle_static — GET 请求
         # ============================================================
@@ -319,28 +319,62 @@ async def execute(envelop, agent):
             # ============================================================
             # 内置端点（不转发给插件）
             # ============================================================
+            # ★ 上传配置
+            if file_path == "api/upload_config":
+                upload_config = agent.config.get("upload", {})
+                upload_external_url = upload_config.get("external_url", "")
+                upload_port = agent.config.get("port", 9000) + 2
 
+                is_secure = request.headers.get("X-Forwarded-Proto", request.scheme) == "https"
+                hostname = request.host.split(':')[0]
+
+                if upload_external_url:
+                    url = upload_external_url
+                else:
+                    protocol = "https" if is_secure else "http"
+                    url = f"{protocol}://{hostname}:{upload_port}/upload"
+
+                return web.json_response({
+                    "url": url,
+                    "port": upload_port,
+                    "secure": is_secure
+                })
             # ★ WebSocket 配置（必须放在最前面，不被 startswith("api/") 捕获）
             if file_path == "api/ws_config":
                 ws_config = agent.config.get("websocket", {})
                 ws_external_url = ws_config.get("external_url", "")
                 ws_port = agent.config.get("port", 9000) + 1
-                
+
                 is_secure = request.headers.get("X-Forwarded-Proto", request.scheme) == "https"
                 hostname = request.host.split(':')[0]
-                
+
                 if ws_external_url:
                     url = ws_external_url
                 else:
                     protocol = "wss" if is_secure else "ws"
                     url = f"{protocol}://{hostname}/ws"
-                
+
                 return web.json_response({
                     "url": url,
                     "port": ws_port,
                     "secure": is_secure
                 })
-
+                # ★ 后端信息（给前端做能力探测）
+            if file_path == "api/backend_info":
+                    import sys as _sys
+                    return web.json_response({
+                        "language": "python",
+                        "runtime": f"{_sys.version_info.major}.{_sys.version_info.minor}.{_sys.version_info.micro}",
+                        "version": "5.3",
+                        "protocol_version": "5.4",
+                        "plugins_dir": "plugins",
+                        "www_dir": "www",
+                        "features": [
+                            "plugin", "frontend", "studio",
+                            "websocket", "file_receiver",
+                            "restart", "cron"
+                        ],
+                    })
             # 插件列表
             if file_path == "api/list":
                 return await _route_get("os/_registry", request, action="list")
@@ -377,22 +411,22 @@ async def execute(envelop, agent):
             # 静态文件
             return await _route_get("os/_static", request,
                                 action="serve", file_path=file_path)
-        
+
         async def _route_get(receiver, request, action=None, file_path=None):
             from urllib.parse import parse_qs
-            
+
             payload = {}
-            
+
             if action:
                 payload["action"] = action
             if file_path:
                 payload["file_path"] = file_path
-            
+
             query = parse_qs(request.query_string)
             for key, values in query.items():
                 if values:
                     payload[key] = values[0]
-            
+
             env = core.Envelop(
                 sender="os/_gateway",
                 receiver=receiver,
@@ -404,19 +438,19 @@ async def execute(envelop, agent):
                     "path": file_path or receiver,
                 },
             )
-            
+
             result = await agent.system.call(env)
-            
+
             if not result:
                 return web.json_response({"error": "no response"}, status=500)
-            
+
             # 静态文件
             if result.meta and result.meta.get("static_content"):
                 return web.Response(
                     body=result.meta["static_content"],
                     content_type=result.meta.get("content_type", "text/html"),
                 )
-            
+
             # 文件响应
             if result.meta and result.meta.get("response_type") == "file":
                 fp = result.meta.get("file_path")
@@ -429,14 +463,14 @@ async def execute(envelop, agent):
                         "Content-Disposition": f'{result.meta.get("content_disposition", "inline")}; filename="{result.meta.get("file_name", "file")}"'
                     }
                 )
-            
+
             # 错误
             if result.payload and result.payload.get("error"):
                 status = 403 if "Forbidden" in str(result.payload.get("error", "")) else 404
                 return web.Response(text=result.payload["error"], status=status)
-            
+
             return web.json_response(result.payload if result.payload else {"ok": True})
-        
+
         # ============================================================
         # 路由注册
         # ============================================================
@@ -445,19 +479,19 @@ async def execute(envelop, agent):
         app.router.add_get("/", handle_static)
         app.router.add_get("/{path:.*}", handle_static)
         app.router.add_get("/health", lambda r: web.json_response({"status": "ok"}))
-        
+
         runner = web.AppRunner(app)
         await runner.setup()
         await web.TCPSite(runner, host, port).start()
-        
+
         agent.log.info(f"[Gateway] HTTP server listening on http://{host}:{port}")
-        
+
         envelop.payload = {"status": "listening", "port": port, "host": host}
         return envelop
-    
+
     elif action == "STOP":
         envelop.payload = {"status": "stopped"}
         return envelop
-    
+
     envelop.payload = {"error": f"Unknown action: {action}"}
     return envelop

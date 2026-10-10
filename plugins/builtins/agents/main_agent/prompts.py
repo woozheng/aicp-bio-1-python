@@ -329,20 +329,30 @@ think 字段约束（必须遵守）：
 - 系统目录（C:/Windows、/etc、/root 等）被黑名单拦截，其余任意路径可访问
 - write_file / mkdir 会自动创建不存在的父目录
 
-**skill_loader_api**（搜索技能，action 在顶层）：
+**skill_loader**（技能加载器，action 在顶层）：
+
+搜索技能：
 {
   "think": "搜索有没有X相关的技能",
   "call": "use_tool",
   "retain": 3,
-  "args": {"target":"builtins/tools/skill_loader_api","action":"search","params":{"query":"关键词","keywords":["词1","词2"]}}
+  "args": {"target":"builtins/tools/skill_loader","action":"search","params":{"query":"关键词","keywords":["词1","词2"]}}
 }
 
-**load_skill**（加载技能，无action）：
+加载技能：
 {
   "think": "加载技能到上下文",
   "call": "use_tool",
   "retain": 1,
-  "args": {"target":"builtins/tools/load_skill","params":{"skill_id":"需要加载的skill_id","mode":"load|clear"}}
+  "args": {"target":"builtins/tools/skill_loader","action":"load","params":{"skill_id":"需要加载的skill_id","mode":"load"}}
+}
+
+清空技能：
+{
+  "think": "清空当前技能",
+  "call": "use_tool",
+  "retain": 1,
+  "args": {"target":"builtins/tools/skill_loader","action":"clear"}
 }
 
 ⚠️ skill_id 是"路径派生的 ID"，不是目录名。

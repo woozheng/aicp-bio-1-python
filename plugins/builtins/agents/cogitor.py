@@ -1,10 +1,17 @@
 """
-cogitor — AICP 系统概览（极简版）
-================================
+cogitor — AICP 系统概览（分组 + 描述版）
+========================================
 无状态、实时、按需。不需要启动、不需要心跳、不需要分析。
-- get_map：实时扫描 _registry + www/，返回系统概览
-- 零 token（只正则提取 <title>）
-- 毫秒级响应
+- get_map：系统概览（分类 + 数量 + 描述）
+- list_plugins：一次返回 分类 + 插件名 + 描述
+- 零 token（描述从源码文件提取，有缓存）
+- 毫秒级响应（首次读文件，之后读缓存）
+
+描述来源（按优先级）：
+  1. help() 里的 description 字段（只匹配 help() 之后的）
+  2. @AICP_ALIGN 的 actions 列表
+  3. 模块 docstring 第一行
+  4. 空字符串
 """
 
 import core
@@ -14,6 +21,21 @@ from pathlib import Path
 
 TITLE_PATTERN = re.compile(r'<title>(.*?)</title>', re.DOTALL)
 
+# ★ 基于 cogitor.py 自己的位置，不依赖 CWD
+# cogitor.py 在 plugins/builtins/agents/cogitor.py
+# 往上 3 级到 plugins/
+PLUGINS_ROOT = Path(__file__).parent.parent.parent
+
+PER_GROUP_LIMIT = 15       # 每个分类最多列 15 个插件
+PER_PROJECT_LIMIT = 20     # applications 最多列 20 个项目
+
+# 描述缓存：{plugin_name: desc}
+_desc_cache = {}
+
+
+# ============================================================
+# 前端扫描
+# ============================================================
 
 def _scan_frontend() -> dict:
     """扫描 www/ 目录，提取每个系统的标题"""
@@ -21,17 +43,17 @@ def _scan_frontend() -> dict:
     www_dir = Path("www")
     if not www_dir.exists():
         return result
-    
+
     for app_dir in www_dir.iterdir():
         if not app_dir.is_dir():
             continue
         index_html = app_dir / "index.html"
         if not index_html.exists():
             continue
-        
+
         app_name = app_dir.name
         title = app_name
-        
+
         try:
             content = index_html.read_text(encoding="utf-8")
             match = TITLE_PATTERN.search(content)
@@ -39,78 +61,255 @@ def _scan_frontend() -> dict:
                 title = match.group(1).strip()
         except Exception:
             pass
-        
+
         result[app_name] = title
-    
+
     return result
 
 
+# ============================================================
+# 描述提取（兼容多种来源）
+# ============================================================
+
+def _extract_desc(plugin_name: str) -> str:
+    """
+    从插件源码文件提取描述。
+    优先级：
+      1. help() 里的 description 字段（只匹配 help() 之后的）
+      2. @AICP_ALIGN 的 actions 列表
+      3. 模块 docstring 第一行
+      4. 空字符串
+    """
+    if plugin_name in _desc_cache:
+        return _desc_cache[plugin_name]
+
+    desc = ""
+
+    for suffix in (".py", ".ts", ".js"):
+        f = PLUGINS_ROOT / f"{plugin_name}{suffix}"
+        if not f.exists():
+            continue
+        try:
+            content = f.read_text(encoding="utf-8")
+
+            # ---- 1. description 字段（只匹配 help() 之后的） ----
+            help_pos = content.find("def help")
+            search_from = help_pos if help_pos != -1 else 0
+            m = re.search(
+                r'["\']?description["\']?\s*[:=]\s*["\']([^"\']{1,100})["\']',
+                content[search_from:]
+            )
+            if m:
+                desc = m.group(1).strip()
+                # 清理末尾的引号残留
+                desc = desc.rstrip('"\'')
+                if desc:
+                    break
+
+            # ---- 2. @AICP_ALIGN 的 actions ----
+            m2 = re.search(r'@AICP_ALIGN:\s*actions=([^\n|]+)', content)
+            if m2:
+                actions = [a.strip() for a in m2.group(1).split(",") if a.strip()]
+                if actions:
+                    desc = ", ".join(actions[:3])
+                    if len(actions) > 3:
+                        desc += f" 等 {len(actions)} 个"
+                    break
+
+            # ---- 3. 模块 docstring 第一行 ----
+            m3 = re.match(r'\s*"""?\s*\n?\s*(.{1,100}?)\n', content)
+            if m3:
+                d = m3.group(1).strip()
+                if d and not d.startswith(("import ", "from ", "#")):
+                    desc = d.rstrip('"\'')
+                    if desc:
+                        break
+        except Exception:
+            pass
+
+    # 截断到 50 字
+    if len(desc) > 50:
+        desc = desc[:48] + "…"
+
+    _desc_cache[plugin_name] = desc
+    return desc
+
+
+# ============================================================
+# 插件名获取
+# ============================================================
+
+async def _get_plugin_names(agent) -> list:
+    """从 _registry 获取后端插件名列表"""
+    try:
+        result = await agent.system.call(core.Envelop(
+            sender="builtins/agents/cogitor",
+            receiver="os/_registry",
+            payload={"action": "list"}
+        ))
+        if not result or not result.payload or not result.payload.get("ok"):
+            return []
+        apis = result.payload.get("apis", [])
+        return [a.get("name", "") for a in apis if a.get("name")]
+    except Exception:
+        return []
+
+
+# ============================================================
+# 分组 + 描述
+# ============================================================
+
+def _group_with_desc(plugin_names: list) -> dict:
+    """
+    分组 + 描述。
+
+    规则：
+    - applications/xxx/yyy → 归到 applications，按项目分组（projects）
+    - 其他（builtins/xxx、os/xxx、saver/xxx）→ 归到对应一级分类，列插件名（plugins）
+
+    每个分类最多 PER_GROUP_LIMIT 个插件，超出折叠。
+    applications 最多列 PER_PROJECT_LIMIT 个项目。
+    """
+    groups = {}
+    for name in plugin_names:
+        if not name:
+            continue
+        parts = name.split("/")
+
+        # ★ 只有 applications 下的才是"项目"
+        if parts[0] == "applications" and len(parts) >= 3:
+            category = "applications"
+            project = parts[1]
+            if category not in groups:
+                groups[category] = {}
+            if "projects" not in groups[category]:
+                groups[category]["projects"] = {}
+            if project not in groups[category]["projects"]:
+                groups[category]["projects"][project] = []
+            groups[category]["projects"][project].append(name)
+        else:
+            # builtins/tools/aicp_chat → 归到 builtins
+            # os/file_utils_api → 归到 os
+            category = parts[0] if parts else "_root"
+            if category not in groups:
+                groups[category] = {}
+            if "plugins" not in groups[category]:
+                groups[category]["plugins"] = []
+            groups[category]["plugins"].append(name)
+
+    # 精简 + 加描述
+    result = {}
+    for cat, info in sorted(groups.items()):
+        if cat == "_root":
+            continue
+
+        if info.get("projects"):
+            # applications 这类：列项目名 + 数量 + 描述，限制数量
+            proj_brief = {}
+            shown = 0
+            for proj, plugins in sorted(info["projects"].items()):
+                if shown >= PER_PROJECT_LIMIT:
+                    break
+                desc = ""
+                for p in plugins:
+                    d = _extract_desc(p)
+                    if d:
+                        desc = d
+                        break
+                proj_brief[proj] = {
+                    "count": len(plugins),
+                    "desc": desc,
+                }
+                shown += 1
+
+            total_projects = len(info["projects"])
+            entry = {
+                "projects": proj_brief,
+                "count": sum(p["count"] for p in proj_brief.values()),
+                "total_projects": total_projects,
+            }
+            if total_projects > PER_PROJECT_LIMIT:
+                entry["more_projects"] = total_projects - PER_PROJECT_LIMIT
+            result[cat] = entry
+        elif info.get("plugins"):
+            plugins = sorted(info["plugins"])
+            shown = plugins[:PER_GROUP_LIMIT]
+            plugin_brief = [
+                {"name": p, "desc": _extract_desc(p)}
+                for p in shown
+            ]
+            entry = {"plugins": plugin_brief, "count": len(plugins)}
+            if len(plugins) > PER_GROUP_LIMIT:
+                entry["more"] = len(plugins) - PER_GROUP_LIMIT
+            result[cat] = entry
+
+    return result
+
+
+def _format_group_summary(groups: dict, total: int) -> str:
+    """生成"分组 + 数量 + 描述"的概览文本"""
+    lines = [f"系统共有 {total} 个后端插件。", ""]
+    lines.append("【插件分组】")
+    lines.append("")
+
+    for category in sorted(groups.keys()):
+        info = groups[category]
+        count = info.get("count", 0)
+
+        if info.get("projects"):
+            total_projects = info.get("total_projects", len(info["projects"]))
+            lines.append(f"  • {category}（{count} 个插件，{total_projects} 个项目）")
+            for proj in sorted(info["projects"].keys()):
+                p = info["projects"][proj]
+                desc = f" — {p['desc']}" if p.get("desc") else ""
+                lines.append(f"      - {proj}（{p['count']} 个）{desc}")
+            if info.get("more_projects"):
+                lines.append(f"      - ... 还有 {info['more_projects']} 个项目")
+        elif info.get("plugins"):
+            lines.append(f"  • {category}（{count} 个）")
+            for p in info.get("plugins", []):
+                desc = f" — {p['desc']}" if p.get("desc") else ""
+                lines.append(f"      - {p['name']}{desc}")
+            if info.get("more"):
+                lines.append(f"      - ... 还有 {info['more']} 个")
+
+    return "\n".join(lines)
+
+
+# ============================================================
+# 主入口
+# ============================================================
+
 async def execute(envelop, agent):
     action = envelop.payload.get("action", "get_map")
-    
+
+    # ============================================================
+    # get_map：系统概览
+    # ============================================================
     if action == "get_map":
-        # 1. 从 _registry 获取后端插件列表
-        try:
-            result = await agent.system.call(core.Envelop(
-                sender="builtins/agents/cogitor",
-                receiver="os/_registry",
-                payload={"action": "list"}
-            ))
-            if not result or not result.payload or not result.payload.get("ok"):
-                envelop.payload = {"ok": False, "error": "无法获取插件列表"}
-                return envelop
-            apis = result.payload.get("apis", [])
-        except Exception as e:
-            envelop.payload = {"ok": False, "error": f"获取插件列表失败: {e}"}
+        plugin_names = await _get_plugin_names(agent)
+        if not plugin_names:
+            envelop.payload = {"ok": False, "error": "无法获取插件列表"}
             return envelop
-        
-        # 2. 扫描 www/ 获取前端系统
+
         frontend = _scan_frontend()
-        
-        # 3. 按项目分类后端插件
-        projects = {}
-        for api in apis:
-            name = api.get("name", "")
-            if not name:
-                continue
-            parts = name.split("/")
-            if len(parts) >= 2:
-                category = parts[0]
-                project = parts[1] if len(parts) > 2 else "_root"
-            else:
-                category = "_root"
-                project = "_root"
-            if category not in projects:
-                projects[category] = {}
-            if project not in projects[category]:
-                projects[category][project] = []
-            projects[category][project].append(name)
-        
-        # 4. 生成概览
-        total_plugins = len(apis)
+        groups = _group_with_desc(plugin_names)
+        total_plugins = len(plugin_names)
         total_frontend = len(frontend)
-        
-        summary_lines = [f"系统共有 {total_plugins} 个后端插件，{total_frontend} 个前端系统。", ""]
-        
-        # ★ 前端系统
+
+        summary_lines = [
+            f"系统共有 {total_plugins} 个后端插件，{total_frontend} 个前端系统。",
+            "",
+        ]
+
         if frontend:
             summary_lines.append("【纯前端应用】")
             for app_name, title in sorted(frontend.items()):
                 summary_lines.append(f"  • {app_name} — {title}")
             summary_lines.append("")
-        
-        # 后端插件按项目分类
-        for category in sorted(projects.keys()):
-            if category == "_root":
-                continue  # 跳过根目录插件，避免混乱
-            summary_lines.append(f"【{category}】")
-            for project in sorted(projects[category].keys()):
-                plugin_list = projects[category][project]
-                summary_lines.append(f"  • {project}（{len(plugin_list)}个插件）")
-                for plugin in sorted(plugin_list):
-                    summary_lines.append(f"      - {plugin}")
-            summary_lines.append("")
-        
+
+        summary_lines.append(_format_group_summary(groups, total_plugins))
+
         envelop.payload = {
             "ok": True,
             "summary": "\n".join(summary_lines),
@@ -118,44 +317,83 @@ async def execute(envelop, agent):
                 "total_plugins": total_plugins,
                 "total_frontend": total_frontend,
                 "frontend": frontend,
-                "projects": projects,
-            }
+            },
         }
         return envelop
-    
+
+    # ============================================================
+    # list_plugins：一次返回分组 + 插件名 + 描述
+    # ============================================================
     elif action == "list_plugins":
-        try:
-            result = await agent.system.call(core.Envelop(
-                sender="builtins/agents/cogitor",
-                receiver="os/_registry",
-                payload={"action": "list"}
-            ))
-            if not result or not result.payload or not result.payload.get("ok"):
-                envelop.payload = {"ok": False, "error": "无法获取插件列表"}
+        plugin_names = await _get_plugin_names(agent)
+        if not plugin_names:
+            envelop.payload = {"ok": False, "error": "无法获取插件列表"}
+            return envelop
+
+        category = envelop.payload.get("category", "").strip()
+
+        # ---- 带 category：返回该分类的完整列表 ----
+        if category:
+            matched = [
+                n for n in plugin_names
+                if n == category or n.startswith(category + "/")
+            ]
+            if not matched:
+                envelop.payload = {
+                    "ok": False,
+                    "error": f"没有找到分类或插件: {category}",
+                    "hint": "先用 list_plugins 不带参数查看所有分类",
+                }
                 return envelop
-            apis = result.payload.get("apis", [])
-            plugin_names = [a.get("name", "") for a in apis if a.get("name")]
-            envelop.payload = {"ok": True, "plugins": plugin_names, "total": len(plugin_names)}
+
+            plugins = [
+                {"name": m, "desc": _extract_desc(m)}
+                for m in sorted(matched)
+            ]
+            envelop.payload = {
+                "ok": True,
+                "category": category,
+                "plugins": plugins,
+                "total": len(plugins),
+            }
             return envelop
-        except Exception as e:
-            envelop.payload = {"ok": False, "error": f"获取插件列表失败: {e}"}
-            return envelop
-    
+
+        # ---- 不带 category：一次返回分组 + 插件名 + 描述 ----
+        groups = _group_with_desc(plugin_names)
+        envelop.payload = {
+            "ok": True,
+            "groups": groups,
+            "total": len(plugin_names),
+            "hint": "每个分类最多列 15 个，超出用 more 标记。想看完整列表用 list_plugins category=<分类>",
+        }
+        return envelop
+
     else:
         envelop.payload = {"ok": False, "error": f"未知 action: {action}"}
         return envelop
 
 
+# ============================================================
+# help
+# ============================================================
+
 def help() -> dict:
     return {
         "route": "builtins/agents/cogitor",
-        "description": "AICP 系统概览 — 实时扫描 _registry + www/，零 token",
+        "description": "系统概览 — 分组+描述，一次查询",
         "input": {
             "action": "get_map | list_plugins",
+            "category": "（list_plugins 可选）分类名，如 builtins、os、applications",
         },
         "output": {
             "ok": "是否成功",
-            "summary": "系统概览文本",
-            "data": "结构化数据"
-        }
+            "summary": "系统概览文本（get_map）",
+            "groups": "分组+插件名+描述（list_plugins 无参数）",
+            "plugins": "完整插件列表（list_plugins 指定 category）",
+        },
+        "examples": [
+            'list_plugins → {"groups": {"builtins": {"plugins": [{"name": "builtins/tools/aicp_chat", "desc": "..."}]}}}',
+            'list_plugins category=builtins → {"plugins": [{"name": "builtins/tools/aicp_chat", "desc": "..."}]}',
+            'list_plugins category=applications → {"projects": {"task_board": {"count": 3, "desc": "..."}}}',
+        ],
     }

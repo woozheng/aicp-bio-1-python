@@ -40,7 +40,7 @@
         .chat-main .messages .msg.user{display:flex;justify-content:flex-end;margin-left:auto}
         .chat-main .messages .msg.user .bubble{background:#e94560;color:#fff;border-radius:16px 16px 4px 16px;padding:8px 14px;font-size:14px;line-height:1.5;word-break:break-word}
         .chat-main .messages .msg.assistant .bubble{background:rgba(255,255,255,0.07);color:#e0e0e0;border-radius:16px 16px 16px 4px;padding:8px 14px;font-size:14px;line-height:1.5;word-break:break-word}
-        
+
         .msg.assistant.skill-progress .bubble { border-left: 3px solid #e94560 !important; background: rgba(233, 69, 96, 0.12) !important; color: #f0e0e0 !important; font-style: italic; }
         .msg.assistant.skill-loaded .bubble { border-left: 3px solid #10b981 !important; background: rgba(16, 185, 129, 0.12) !important; color: #d1fae5 !important; }
         .msg.assistant.skill-exit .bubble { border-left: 3px solid #f59e0b !important; background: rgba(245, 158, 11, 0.12) !important; color: #fef3c7 !important; }
@@ -311,7 +311,7 @@
     <nav class="navbar">
         <div class="nav-logo">
             🧠 AICP<span> BIO-1</span>
-            <img src="https://img.shields.io/badge/Python-Reference_Implementation-blue?style=flat-square&logo=python" alt="Python Reference" style="height:20px;vertical-align:middle;">
+            <img id="backendBadgeImg" src="" alt="" style="height:20px;vertical-align:middle;display:none;">
         </div>
         <div class="nav-actions">
             <button class="history-toggle" onclick="toggleHistory()">💬 历史</button>
@@ -479,6 +479,91 @@
     </div>
 </div>
 <script>
+// ============================================================
+// 0. 后端感知
+// ============================================================
+
+var BACKEND_INFO = {
+    language: 'unknown',
+    runtime: '',
+    version: '',
+    protocol_version: '',
+    features: []
+};
+
+async function detectBackend() {
+    try {
+        var r = await fetch('/api/backend_info', { cache: 'no-store' });
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        var info = await r.json();
+        BACKEND_INFO = Object.assign(BACKEND_INFO, info);
+    } catch (e) {
+        console.warn('[AICP] detect backend failed:', e);
+    }
+
+    applyBackendBadge();
+    applyBackendFeatures();
+}
+
+function applyBackendBadge() {
+    var img = document.getElementById('backendBadgeImg');
+    var verEl = document.getElementById('backendVersion');
+
+    // 语言 → 徽章 URL
+    var badgeMap = {
+        'java': {
+            src: 'https://img.shields.io/badge/Java-Implementation-orange?style=flat-square&logo=openjdk',
+            alt: 'Java Implementation'
+        },
+        'python': {
+            src: 'https://img.shields.io/badge/Python-Reference_Implementation-blue?style=flat-square&logo=python',
+            alt: 'Python Reference'
+        },
+        'typescript': {
+            src: 'https://img.shields.io/badge/TypeScript-Reference_Implementation-blue?style=flat-square&logo=typescript',
+            alt: 'TypeScript Reference'
+        }
+    };
+
+    var lang = (BACKEND_INFO.language || '').toLowerCase();
+    var badge = badgeMap[lang];
+
+    if (img) {
+        if (badge) {
+            img.src = badge.src;
+            img.alt = badge.alt;
+            img.title = badge.alt + (BACKEND_INFO.runtime ? ' · ' + BACKEND_INFO.runtime : '');
+            img.style.display = 'inline-block';
+        } else {
+            img.style.display = 'none';
+        }
+    }
+
+    if (verEl) {
+        var v = BACKEND_INFO.version || '5.3';
+        verEl.textContent = 'v' + v;
+    }
+
+    console.log('[AICP] Backend:', BACKEND_INFO);
+}
+
+function applyBackendFeatures() {
+    var feat = new Set(BACKEND_INFO.features || []);
+
+    // 后端不支持 file_receiver → 隐藏上传按钮
+    if (feat.size > 0 && !feat.has('file_receiver')) {
+        var fileBtn = document.querySelector('.file-btn');
+        if (fileBtn) fileBtn.style.display = 'none';
+    }
+
+    // 后端不支持 restart → 隐藏重启按钮
+    if (feat.size > 0 && !feat.has('restart')) {
+        var btns = document.querySelectorAll('.nav-actions button');
+        btns.forEach(function(b) {
+            if (b.title === '重启') b.style.display = 'none';
+        });
+    }
+}
 // ============================================================
 // 1. 面板切换
 // ============================================================
@@ -827,7 +912,7 @@ async function reloadSkill() {
     editor.value = '加载中...';
     editor.disabled = true;
     try {
-        var res = await fetch('/api/builtins/tools/load_skill', {
+        var res = await fetch('/api/builtins/tools/skill_loader', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({
@@ -852,7 +937,7 @@ async function reloadSkill() {
 async function saveSkill() {
     var content = document.getElementById('skillEditor').value;
     try {
-        var res = await fetch('/api/builtins/tools/load_skill', {
+        var res = await fetch('/api/builtins/tools/skill_loader', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({
@@ -876,7 +961,7 @@ async function saveSkill() {
 async function clearSkill() {
     if (!confirm('确定清空当前技能？')) return;
     try {
-        var res = await fetch('/api/builtins/tools/load_skill', {
+        var res = await fetch('/api/builtins/tools/skill_loader', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({
@@ -905,7 +990,7 @@ function updateSkillBadge(hasSkill) {
 
 async function refreshSkillBadge() {
     try {
-        var res = await fetch('/api/builtins/tools/load_skill', {
+        var res = await fetch('/api/builtins/tools/skill_loader', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({
@@ -1152,7 +1237,7 @@ function connectWS() {
                     var label = agentType === 'skill' ? '🧠 【技能专家】' : '';
                     var icon = '';
                     var step = data.step || '';
-                    
+
                     if (step === 'loading' || step === 'loaded') { icon = '📂'; }
                     else if (step === 'thinking') { icon = '💭'; }
                     else if (step === 'executing') { icon = '⚡'; }
@@ -1161,7 +1246,7 @@ function connectWS() {
                     else if (step === 'exiting' || step === 'exited') { icon = '👋'; }
                     else if (step === 'reply') { icon = '💬'; }
                     else { icon = '⏳'; }
-                    
+
                     content = (label ? label + ' ' : '') + icon + ' ' + (data.msg || data.message || '');
                     if (content) {
                         if (agentType === 'skill') {
@@ -1896,8 +1981,8 @@ async function uploadFile(file) {
         formData.append('file', file);
         formData.append('session_id', sessionId);
 
-        var p = window.location.port;
-        var uploadUrl = p ? window.location.protocol + '//' + window.location.hostname + ':' + (parseInt(p) + 2) + '/upload' : '/upload';
+        var cfg = await fetch('/api/upload_config').then(function(r) { return r.json(); });
+        var uploadUrl = cfg.url || '/upload';
 
         var res = await fetch(uploadUrl, {
             method: 'POST',
@@ -2129,14 +2214,19 @@ document.addEventListener('keydown', function(e) {
 });
 
 document.addEventListener('DOMContentLoaded', function() {
-    loadApps();
-    loadServerHistory();
-    refreshSkillBadge();
-    loadCurrentModel();
+    // 输入框自动高度（不依赖后端）
     var input = document.getElementById('msgInput');
     input.addEventListener('input', function() {
         this.style.height = 'auto';
         this.style.height = Math.min(this.scrollHeight, 100) + 'px';
+    });
+
+    // ★ 先探测后端，再初始化
+    detectBackend().then(function() {
+        loadApps();
+        loadServerHistory();
+        refreshSkillBadge();
+        loadCurrentModel();
     });
 });
 </script>

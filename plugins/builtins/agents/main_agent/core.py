@@ -565,7 +565,7 @@ def _get_or_create_flow(session_id: str) -> InformationFlow:
 
 
 # ============================================================
-# WebSocket 推送
+# WebSocket 推送（统一走 system.call，sender 为 main_agent）
 # ============================================================
 
 async def _push_progress(agent, session_id: str, step: str, msg: str):
@@ -600,10 +600,32 @@ async def _push_chat(agent, session_id: str, content: str):
 
 async def _push_stream(agent, session_id: str, chunk: str):
     try:
-        from plugins.builtins.notify.ws_notify import push as ws_push
-        await ws_push(agent, f"pa_{session_id}", {"type": "summary_stream", "chunk": chunk})
+        await agent.system.call(core.Envelop(
+            sender="builtins/agents/main_agent",
+            receiver="os/_websocket",
+            payload={
+                "action": "push",
+                "channel_id": f"pa_{session_id}",
+                "data": {"type": "summary_stream", "chunk": chunk}
+            }
+        ))
     except Exception as e:
         Logger.warn(f"[WS] 流式推送失败: {e}")
+
+
+async def _push_error(agent, session_id: str, content: str):
+    try:
+        await agent.system.call(core.Envelop(
+            sender="builtins/agents/main_agent",
+            receiver="os/_websocket",
+            payload={
+                "action": "push",
+                "channel_id": f"pa_{session_id}",
+                "data": {"type": "error", "content": content}
+            }
+        ))
+    except Exception as e:
+        Logger.warn(f"[WS] 错误推送失败: {e}")
 
 
 # ============================================================
@@ -682,10 +704,30 @@ class LLMOutputParser:
             return self._get_error_response("输入类型错误", "抱歉，处理过程中出现错误，请稍后重试")
 
         try:
+                    
             raw_stripped = raw.strip()
 
             if not raw_stripped:
                 return self._get_error_response("空输入", "抱歉，我遇到了一些问题...")
+
+            # ★★★ 只从头剥离 <think> 段 ★★★
+            if raw_stripped.startswith("<think>"):
+                if "</think>" in raw_stripped:
+                    idx = raw_stripped.find("</think>")
+                    raw_stripped = raw_stripped[idx + len("</think>"):].lstrip()
+                    Logger.warn("剥离开头的 <think>...</think> 段")
+                else:
+                    next_brace = raw_stripped.find("{")
+                    if next_brace != -1:
+                        raw_stripped = raw_stripped[next_brace:]
+                        Logger.warn("剥离未闭合的 <think> 段（保留 JSON）")
+                    else:
+                        raw_stripped = ""
+                        Logger.warn("剥离未闭合的 <think> 段（无 JSON，全剥）")
+                Logger.warn(f"剥离后长度 {len(raw_stripped)}")
+
+            if not raw_stripped:
+                return self._get_error_response("空输入（<think>剥离后）", "抱歉，我遇到了一些问题...")
 
             if len(raw_stripped) > self._max_extract_len:
                 Logger.warn(f"LLM 输出过长（{len(raw_stripped)} 字符），截断到 {self._max_extract_len}")
@@ -1548,11 +1590,7 @@ class LLMThinker:
                     interrupted = True
                     interrupted_reason = "单次调用超时"
                     try:
-                        from plugins.builtins.notify.ws_notify import push as ws_push
-                        await ws_push(agent, channel, {
-                            "type": "error",
-                            "content": f"⚠️ 生成超时（{MAX_STREAM_TIME}s），已中断，正在重试..."
-                        })
+                        await _push_error(agent, session_id, f"⚠️ 生成超时（{MAX_STREAM_TIME}s），已中断，正在重试...")
                     except Exception:
                         pass
                     break
@@ -1565,11 +1603,7 @@ class LLMThinker:
                         interrupted = True
                         interrupted_reason = "think 字段过长"
                         try:
-                            from plugins.builtins.notify.ws_notify import push as ws_push
-                            await ws_push(agent, channel, {
-                                "type": "error",
-                                "content": "⚠️ think 字段过长，已中断，正在重试..."
-                            })
+                            await _push_error(agent, session_id, "⚠️ think 字段过长，已中断，正在重试...")
                         except Exception:
                             pass
                         break
@@ -1585,11 +1619,7 @@ class LLMThinker:
                     interrupted = True
                     interrupted_reason = "检测到多个 JSON 对象"
                     try:
-                        from plugins.builtins.notify.ws_notify import push as ws_push
-                        await ws_push(agent, channel, {
-                            "type": "error",
-                            "content": "⚠️ 检测到异常输出（多个 JSON），已中断，正在重试..."
-                        })
+                        await _push_error(agent, session_id, "⚠️ 检测到异常输出（多个 JSON），已中断，正在重试...")
                     except Exception:
                         pass
                     break
@@ -1604,19 +1634,14 @@ class LLMThinker:
                             interrupted = True
                             interrupted_reason = "检测到多个 JSON 对象"
                             try:
-                                from plugins.builtins.notify.ws_notify import push as ws_push
-                                await ws_push(agent, channel, {
-                                    "type": "error",
-                                    "content": f"⚠️ 检测到异常输出（{json_count} 个 JSON），已中断，正在重试..."
-                                })
+                                await _push_error(agent, session_id, f"⚠️ 检测到异常输出（{json_count} 个 JSON），已中断，正在重试...")
                             except Exception:
                                 pass
                             break
 
                 # 正常推送流式 token
                 try:
-                    from plugins.builtins.notify.ws_notify import push as ws_push
-                    await ws_push(agent, channel, {"type": "summary_stream", "chunk": token})
+                    await _push_stream(agent, session_id, token)
                 except Exception:
                     pass
 

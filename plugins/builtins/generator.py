@@ -149,7 +149,7 @@ def validate_python_quality(code: str) -> tuple[bool, str]:
         return False, f"too short ({len(code)} bytes)"
     if "async def execute" not in code and "def execute" not in code:
         return False, "missing execute() function"
-  
+
     for ph in ("# your code here", "# TODO", "# todo", "pass  # TODO"):
         if ph in code:
             return False, f"contains placeholder: {ph}"
@@ -385,21 +385,21 @@ def _extract_code_from_markdown(raw: str, plugin_name: str) -> str:
         code = match.group(1).strip()
         if 'async def execute' in code or 'def execute' in code:
             return code
-    
+
     # 尝试 ~~~python ... ~~~
     match = re.search(r'~~~python\s*\n(.*?)~~~', raw, re.DOTALL)
     if match:
         code = match.group(1).strip()
         if 'async def execute' in code or 'def execute' in code:
             return code
-    
+
     # 尝试 ``` ... ```（无语言标记）
     match = re.search(r'```\s*\n(.*?)```', raw, re.DOTALL)
     if match:
         code = match.group(1).strip()
         if 'async def execute' in code or 'def execute' in code:
             return code
-    
+
     return ""
 
 async def _generate_with_retry(agent, system_prefix: str, context: str,
@@ -407,7 +407,7 @@ async def _generate_with_retry(agent, system_prefix: str, context: str,
                                 session_id: str = "default") -> dict:
     """生成插件代码，带自动重试和语法修复，支持流式输出"""
     from plugins.builtins.notify.ws_notify import push as ws_push
-    
+
     llm = agent.llm
     last_code = ""
     last_context = context
@@ -431,7 +431,7 @@ async def _generate_with_retry(agent, system_prefix: str, context: str,
 
     for attempt in range(max_retries):
         await _push_thinking(f"正在生成 {plugin_name} (第{attempt+1}次)...")
-        
+
         raw = ""
         try:
             async for token in llm.chat_stream(
@@ -449,7 +449,7 @@ async def _generate_with_retry(agent, system_prefix: str, context: str,
                 {"role": "user", "content": last_context},
             ],role="code" )
             await _push_code(raw)
-        
+
         if is_ui:
             code = raw.strip()
             if code.startswith("```html"): code = code[7:]
@@ -500,7 +500,7 @@ async def _generate_with_retry(agent, system_prefix: str, context: str,
 
         print(f"[generator] ⚠️ {plugin_name} 语法错误 (第{attempt+1}次): {errors}")
         await _push_thinking(f"⚠️ 语法错误: {'; '.join(errors)}")
-        
+
         fixed_code = _auto_fix_python_syntax(code)
         valid_fixed, errors_fixed = _validate_python_syntax(fixed_code)
 
@@ -522,59 +522,119 @@ async def _generate_with_retry(agent, system_prefix: str, context: str,
 # ============================================================
 # 完整生成（一把梭）【核心改造点】
 # ============================================================
-async def _continue_html(agent, partial_html: str, system_prefix: str, 
-                          api_context: str, channel: str) -> str:
-    """HTML 被截断时，让 LLM 从断点续写到 </html>"""
-    
-    # 取最后 2000 字符作为上下文
-    tail = partial_html[-2000:] if len(partial_html) > 2000 else partial_html
-    
-    prompt = f"""{system_prefix}
+async def _continue_html(agent, partial_html: str, system_prefix: str,
+                          api_context: str, channel: str, max_continuations: int = 3) -> str:
+    """HTML 被截断时，让 LLM 从断点续写到 </html>
+
+    ★ 改动：
+    1. 给"完整 HTML"（不是"尾部 2000 字"），让 LLM 看到"全局命名"
+    2. 拼接时"重叠检测 + 去重"
+    3. 拼接后"粘连修复"
+    4. prompt 用 <<<<<<<BEGIN_HTML>>>>>>> 分隔，避免 md 代码块冲突
+    """
+    if not agent or not agent.llm:
+        return partial_html
+
+    html = partial_html
+
+    for attempt in range(max_continuations):
+        lower = html.strip().lower()
+
+        # 完整
+        if lower.endswith("</html>"):
+            return html
+
+        # 只补 </html>
+        if "</body>" in lower:
+            return html.rstrip() + "\n</html>"
+
+        # 真的截断，走续写
+        prompt = f"""{system_prefix}
 
 {api_context}
 
 【HTML 被截断了，请从断点续写到 </html>】
 
-以下是已生成的 HTML 末尾部分，请从断点接着写，不要重复已有内容：
+以下是**完整的已生成 HTML**（从头到断点）：
 
-{tail}
+<<<<<<<BEGIN_HTML>>>>>>>
+{html}
+<<<<<<<END_HTML>>>>>>>
 
 【续写规则】
-1. 从上面的断点继续写，不要重复已有内容
-2. 不要再输出 <!DOCTYPE html>、<html>、<head> 等已经存在的标签
-3. 如果正在某个函数体内，继续写完该函数
-4. 写完所有剩余内容后，依次闭合 </script>、</body>、</html>
-5. 直接输出续写内容，不要用 html_content = '''...''' 包裹
+1. 从断点（最后一行）继续写，不要重复已有内容
+2. **必须沿用上面已有的所有命名**：
+   - 函数名（如 formatDeadline、handleCoverUpload 等）
+   - 变量名（如 currentVoteId、selectedOptionIndex 等）
+   - HTML 元素 ID（如 voteGrid、detailView、optionsList 等）
+   - CSS 类名
+3. 如果上面的代码"引用了某个函数但还没定义"，你在这里定义它（用**相同的名字**）
+4. 如果上面的代码"引用了某个元素 ID 但 HTML 里没有"，你要在续写的 JS 里用**相同的 ID** 或说明该 ID 应在哪里
+5. 写完所有剩余内容后，依次闭合 </script>、</body>、</html>
+6. 直接输出续写内容，不要重复 <!DOCTYPE html>、<html>、<head>、<style> 等
 
-只输出从断点开始的续写内容。"""
-    
-    try:
-        raw = await agent.llm.chat([{"role": "user", "content": prompt}],role="code" )
-    except Exception as e:
-        print(f"[GENERATE_FULL] ❌ 续写失败: {e}")
-        return partial_html  # 续写失败就返回原文
-    
-    if not raw:
-        print(f"[GENERATE_FULL] ❌ 续写返回为空")
-        return partial_html
-    
-    continuation = raw.strip() if isinstance(raw, str) else str(raw).strip()
-    
-    # 清理可能的代码块标记
-    for prefix in ["```html", "```javascript", "```js", "```"]:
-        if continuation.startswith(prefix):
-            continuation = continuation[len(prefix):]
-    for suffix in ["```", "~~~"]:
-        if continuation.endswith(suffix):
-            continuation = continuation[:-len(suffix)]
-    continuation = continuation.strip()
-    
-    # 移除可能的 html_content 包裹
-    html_match = re.search(r"""html_content\s*=\s*['"]{3}([\s\S]*?)['"]{3}""", continuation, re.DOTALL)
-    if html_match:
-        continuation = html_match.group(1).strip()
-    
-    return partial_html + continuation
+只输出从断点开始的续写内容（不要重复前面的代码）。"""
+
+        try:
+            raw = await agent.llm.chat([{"role": "user", "content": prompt}], role="code")
+        except Exception as e:
+            print(f"[GENERATE_FULL] ❌ 续写失败: {e}")
+            return html
+
+        if not raw:
+            print(f"[GENERATE_FULL] ❌ 续写返回为空")
+            return html
+
+        continuation = raw.strip() if isinstance(raw, str) else str(raw).strip()
+
+        # 清理代码块标记
+        for prefix in ["```html", "```javascript", "```js", "```"]:
+            if continuation.startswith(prefix):
+                continuation = continuation[len(prefix):]
+                break
+        for suffix in ["```", "~~~"]:
+            if continuation.endswith(suffix):
+                continuation = continuation[:-len(suffix)]
+                break
+        continuation = continuation.strip()
+
+        # 移除可能的 html_content 包裹
+        html_match = re.search(r"""html_content\s*=\s*['"]{3}([\s\S]*?)['"]{3}""", continuation, re.DOTALL)
+        if html_match:
+            continuation = html_match.group(1).strip()
+
+        # ★★★ 关键：重叠检测 + 去重 ★★★
+        overlap_len = 0
+        max_check = min(len(html), len(continuation))
+        # 从大到小找重叠（至少 8 字符才算）
+        for i in range(max_check, 7, -1):
+            tail = html[-i:]
+            if continuation.startswith(tail):
+                overlap_len = i
+                break
+
+        if overlap_len > 0:
+            print(f"[GENERATE_FULL] 检测到重叠 {overlap_len} 字符，去重")
+            continuation = continuation[overlap_len:]
+
+        html = html + continuation
+
+        # ★ 修复"粘连"（`var optionsvar inputElements` 这种）
+        html = re.sub(r'(var\s+\w+)\s*(var\s+\w+)', r'\1;\n\2', html)
+        html = re.sub(r'(if\s*\([^)]+\))\s*(if\s*\([^)]+\))', r'\1;\n\2', html)
+        html = re.sub(r'(function\s*\w*\s*\([^)]*\)\s*\{?)\s*(function\s*\w*\s*\()', r'\1\n\2', html)
+
+        print(f"[GENERATE_FULL] HTML 续写完成（第 {attempt + 1} 次），当前 {len(html)} 字")
+
+        try:
+            await ws_push(agent, channel, {
+                "type": "progress", "step": "executing",
+                "msg": f"HTML 续写完成（第 {attempt + 1} 次），当前 {len(html)} 字",
+            })
+        except Exception:
+            pass
+
+    return html
 
 def _extract_html_content_from_ui_plugin(code: str) -> str | None:
     """
@@ -712,7 +772,7 @@ async def generate_full(envelop, agent) -> dict:
     plugins = design_result.payload.get("plugins", [])
     pipeline = design_result.payload.get("pipeline", {})
     complexity = design_result.payload.get("complexity", 0)
-    
+
     print(f"[GENERATE_FULL] 架构完成，complexity={complexity}, plugins数量={len(plugins)}")
     for idx, plg in enumerate(plugins):
         print(f"[GENERATE_FULL] plugin[{idx}] name={plg.get('name')}")
@@ -1073,7 +1133,7 @@ def process_plugin_output(plugin_name: str, code: str) -> str:
 
 async def fix_plugin(envelop, agent) -> dict:
     import time as _time
-    
+
     plugin_name = envelop.payload.get("plugin_name", "main.py")
     original_code = envelop.payload.get("code", "")
     error_msg = envelop.payload.get("error", "")
@@ -1256,7 +1316,7 @@ async def fix_plugin(envelop, agent) -> dict:
                 fixed = _extract_code_from_markdown(raw, plugin_name)
         if not fixed:
             fixed = _clean_code(raw)
-        
+
         # ★ 去重：只保留第一个 === PLUGIN === 块
         if fixed and "=== END ===" in fixed:
             parts = fixed.split("=== END ===")
@@ -1596,7 +1656,7 @@ def _build_api_context(api_summaries: list) -> str:
    button.addEventListener('click', function() {
        runTask(this.getAttribute('data-task-id'));
    });
-   
+
    不要用:
    '<button onclick="runTask(\\'' + task.task_id + '\\')">执行</button>'
 """
@@ -1636,28 +1696,28 @@ def _extract_plugin_code(raw: str, plugin_name: str) -> str:
 
 def _clean_code(code: str) -> str:
     import re
-    
+
     if not code:
         return ""
-    
+
     # 统一换行符
     code = code.replace('\r\n', '\n').replace('\r', '\n')
-    
+
     # 去掉 === PLUGIN === 和 === END === 残留
     code = re.sub(r'^=== PLUGIN:.*?===\s*\n?', '', code)
     code = re.sub(r'\n?=== END ===\s*$', '', code)
-    
+
     # 去掉开头的代码块标记
     code = re.sub(r'^```(?:python|py|javascript|js|json)?\s*\n?', '', code)
     code = re.sub(r'^~~~(?:python|py|javascript|js|json)?\s*\n?', '', code)
-    
+
     # 去掉结尾的代码块标记
     code = re.sub(r'\n?```\s*$', '', code)
     code = re.sub(r'\n?~~~\s*$', '', code)
-    
+
     # 去掉首尾空白
     code = code.strip()
-    
+
     return code
 
 

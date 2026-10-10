@@ -33,6 +33,17 @@ body {
   color: #666;
   font-size: 0.9rem;
 }
+.badge-row {
+  margin-top: 10px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+}
+.badge-row img {
+  height: 20px;
+  display: block;
+}
 .login-inline {
   display: flex;
   justify-content: center;
@@ -249,8 +260,11 @@ body {
 
 <div class="container">
   <div class="hero">
-    <h1>⚡ AICP Engine</h1>
-    <div class="subtitle">AI 驱动的应用创造平台</div>
+    <h1>⚡ AICP BIO-1</h1>
+    <div class="subtitle">自举、自进化的AI-Agent</div>
+    <div class="badge-row">
+      <img id="backendBadgeImg" src="" alt="" style="height:20px;vertical-align:middle;display:none;">
+    </div>
     <div class="login-inline">
       <input type="password" id="tokenInput" placeholder="🔑 访问密钥" autofocus>
       <button onclick="login()">🚀 进入控制台</button>
@@ -272,6 +286,56 @@ body {
 <div class="page-menu-dropdown" id="pageMenuDropdown"></div>
 
 <script>
+// ============================================================
+// 后端感知
+// ============================================================
+
+var BACKEND_INFO = { language: 'unknown', runtime: '', version: '', protocol_version: '', features: [] };
+
+async function detectBackend() {
+    try {
+        var r = await fetch('/api/backend_info', { cache: 'no-store' });
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        BACKEND_INFO = Object.assign(BACKEND_INFO, await r.json());
+    } catch (e) {
+        console.warn('[AICP] detect backend failed:', e);
+    }
+    applyBackendBadge();
+}
+
+function applyBackendBadge() {
+    var img = document.getElementById('backendBadgeImg');
+    if (!img) return;
+
+    var badgeMap = {
+        'java': {
+            src: 'https://img.shields.io/badge/Java-Implementation-orange?style=flat-square&logo=openjdk',
+            alt: 'Java Implementation'
+        },
+        'python': {
+            src: 'https://img.shields.io/badge/Python-Reference_Implementation-blue?style=flat-square&logo=python',
+            alt: 'Python Reference'
+        },
+        'typescript': {
+            src: 'https://img.shields.io/badge/TypeScript-Reference_Implementation-blue?style=flat-square&logo=typescript',
+            alt: 'TypeScript Reference'
+        }
+    };
+
+    var lang = (BACKEND_INFO.language || '').toLowerCase();
+    var badge = badgeMap[lang];
+
+    if (badge) {
+        img.src = badge.src;
+        img.alt = badge.alt;
+        img.title = badge.alt + (BACKEND_INFO.runtime ? ' · ' + BACKEND_INFO.runtime : '');
+        img.style.display = 'inline-block';
+    } else {
+        img.style.display = 'none';
+    }
+
+    console.log('[AICP] Backend:', BACKEND_INFO);
+}
 function login() {
   var token = document.getElementById('tokenInput').value.trim();
   if (!token) return;
@@ -368,7 +432,7 @@ async function loadAppGallery() {
 
     var grid = document.getElementById('appGrid');
     if (apps.length === 0) { grid.innerHTML = '<div class="loading-text">暂无应用</div>'; return; }
-    
+
     grid.innerHTML = apps.map(function(a) {
       var icon = a.is_frontend ? '🌐' : '📦';
       return '<div class="app-card" onclick="window.open(\'' + a.url + '\',\'_blank\')">' +
@@ -376,8 +440,8 @@ async function loadAppGallery() {
         '<div class="app-desc">' + (a.desc || a.name) + '</div>' +
         '<div class="app-meta">' +
           '<span>' + a.name + '</span>' +
-          (a.pageCount > 1 
-            ? '<button class="page-menu-btn" data-pages=\'' + JSON.stringify(a.pages) + '\'>' + a.pageCount + ' 页 ▾</button>' 
+          (a.pageCount > 1
+            ? '<button class="page-menu-btn" data-pages=\'' + JSON.stringify(a.pages) + '\'>' + a.pageCount + ' 页 ▾</button>'
             : '<span>1 页</span>') +
         '</div>' +
       '</div>';
@@ -394,7 +458,10 @@ async function loadAppGallery() {
     document.getElementById('appGrid').innerHTML = '<div class="loading-text">加载失败</div>';
   }
 }
-loadAppGallery();
+// ★ 先探测后端，再加载应用广场
+detectBackend().then(function() {
+    loadAppGallery();
+});
 </script>
 </body>
 </html>
