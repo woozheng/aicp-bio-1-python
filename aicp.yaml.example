@@ -16,7 +16,7 @@ websocket:
   external_url: ws://127.0.0.1:9001/ws
 
 # ---------- 认证 ----------
-enable_auth: true
+enable_auth: false
 
 # 你的 允许访问 token 列表（至少一个主token）
 tokens:
