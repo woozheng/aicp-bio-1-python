@@ -43,6 +43,31 @@ PROTOCOL = """## 角色
 - 不回复任何文字描述
 
 ═══════════════════════════════════════
+【依赖声明规范 — 必须遵守】
+═══════════════════════════════════════
+如果插件需要第三方库，在 `=== PLUGIN ===` 之前用 `~~~packages~~~` 声明：
+
+~~~packages
+pandas
+requests==2.31.0
+~~~
+
+规则：
+1. `~~~packages~~~` 块必须在 `=== PLUGIN ===` 之前
+2. 一行一个依赖
+3. 系统会自动 pip install
+4. 已声明依赖的库，代码里可以直接 import
+5. 不要声明 Python 自带的库（os、sys、json、pathlib、asyncio 等）
+
+优先用 Python 自带能力。只有明显别扭时才引第三方库：
+- 复杂数据处理 → pandas
+- 复杂 HTTP → requests（标准库 urllib 也行，但 requests 更好用）
+- 图片处理 → Pillow
+- 日期处理 → dateutil
+- Excel → openpyxl
+
+不确定时：用 Python 自带能力。
+═══════════════════════════════════════
 【ACTIONS_SCHEMA — 每个插件必须声明】
 ═══════════════════════════════════════
 所有插件文件顶部必须定义 ACTIONS_SCHEMA，声明该插件的所有 action 及其参数。

@@ -20,6 +20,33 @@ LIBS_DIR = Path(__file__).parent / "libs"
 
 _THINK_TAGS = ("think", "thinking", "reasoning", "reflection", "analysis", "internal")
 
+async def _ensure_packages_via_plugin(agent, packages: list[str]) -> None:
+    """通过 os/pip 插件装依赖"""
+    if not packages:
+        return
+    result = await agent.system.call(core.Envelop(
+        sender="builtins/generator",
+        receiver="os/pip",
+        payload={"action": "install", "packages": packages},
+    ))
+    if not result or not result.payload.get("ok"):
+        err = result.payload.get("error") if result else "无响应"
+        raise RuntimeError(f"pip install 失败: {err}")
+
+def extract_packages(text: str) -> list[str]:
+    """从 LLM 输出中提取 ~~~packages ... ~~~ 块"""
+    m = re.search(r"~~~packages\s*\n(.*?)~~~", text, re.DOTALL)
+    if not m:
+        return []
+    packages = []
+    for line in m.group(1).split("\n"):
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        pkg = re.split(r"[=<>!\[]", line)[0].strip()
+        if pkg:
+            packages.append(pkg)
+    return packages
 
 def strip_think_tags(raw: str) -> str:
     """
@@ -449,6 +476,16 @@ async def _generate_with_retry(agent, system_prefix: str, context: str,
                 {"role": "user", "content": last_context},
             ],role="code" )
             await _push_code(raw)
+
+        packages = extract_packages(raw)
+        if packages:
+            try:
+                await _push_thinking(f"📦 安装依赖: {', '.join(packages)}")
+                await _ensure_packages_via_plugin(agent, packages)
+            except Exception as e:
+                print(f"[generator] ⚠️ {plugin_name} 依赖安装失败: {e}")
+                await _push_thinking(f"⚠️ 依赖安装失败: {e}")
+
 
         if is_ui:
             code = raw.strip()

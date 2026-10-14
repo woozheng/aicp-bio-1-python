@@ -400,7 +400,7 @@ think 字段约束（必须遵守）：
   "think": "信息流不够，搜历史记忆",
   "call": "use_tool",
   "retain": 3,
-  "args": {"target":"builtins/agents/search_memory","action":"search","params":{"session_id":"__SESSION_ID__","query":"关键词","keywords":["词1","词2"]}}
+  "args": {"target":"builtins/agents/search_memory","action":"get","params":{"session_id":"__SESSION_ID__","query":"关键词","keywords":["词1","词2"]}}
 }
 
 **os/_cron**（定时任务，action 在顶层，参数见契约）：
