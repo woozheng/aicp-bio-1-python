@@ -8,7 +8,7 @@ import tempfile
 import uuid
 import os
 from pathlib import Path
-from typing import Dict, Any, List, Callable, Optional, Awaitable
+from typing import Dict, Any, List, Callable, Optional, Awaitable, Coroutine
 from datetime import datetime
 
 import core
@@ -227,7 +227,7 @@ class AsyncTaskManager:
     def __init__(self):
         self._tasks: Dict[str, asyncio.Task] = {}
 
-    def submit(self, session_id: str, coro: Awaitable):
+    def submit(self, session_id: str, coro: Coroutine[Any, Any, Any]):
         task = asyncio.create_task(coro)
         task.add_done_callback(lambda t: self._on_task_done(session_id, t))
         self._tasks[session_id] = task
@@ -284,12 +284,12 @@ class InformationFlow:
     async def _save_locked(self):
         """原子保存：根目录全量 + 日期目录增量"""
         content = json.dumps(self._flow, ensure_ascii=False, indent=2, default=str)
-        
+
         # ============================================================
         # 1. 写入根目录（全量，用于重启恢复）
         # ============================================================
         root_file = self.memories_dir / f"{self.session_id}_flow.json"
-        
+
         temp_fd, temp_path = tempfile.mkstemp(
             dir=str(self.memories_dir),
             prefix=f".{root_file.name}_",
@@ -300,7 +300,7 @@ class InformationFlow:
                 f.write(content)
                 f.flush()
                 os.fsync(f.fileno())
-            
+
             # ★ os.replace 原子操作，直接覆盖，不需要 backup
             os.replace(temp_path, str(root_file))
         except Exception as e:
@@ -318,19 +318,19 @@ class InformationFlow:
         flow_dir = self.memories_dir / "flows" / date_key
         flow_dir.mkdir(parents=True, exist_ok=True)
         date_file = flow_dir / f"{self.session_id}.json"
-        
+
         # ★★★ 只取今天的条目 ★★★
         today = datetime.now().date()
         today_entries = [
             e for e in self._flow
             if datetime.fromisoformat(e.get("timestamp", "")).date() == today
         ]
-        
+
         if not today_entries:
             return  # 今天没有新条目，跳过
-        
+
         today_content = json.dumps(today_entries, ensure_ascii=False, indent=2, default=str)
-        
+
         temp_fd2, temp_path2 = tempfile.mkstemp(
             dir=str(flow_dir),
             prefix=f".{date_file.name}_",
@@ -341,7 +341,7 @@ class InformationFlow:
                 f.write(today_content)
                 f.flush()
                 os.fsync(f.fileno())
-            
+
             # ★ os.replace 原子操作，直接覆盖
             os.replace(temp_path2, str(date_file))
         except Exception as e:
@@ -363,7 +363,7 @@ class InformationFlow:
 
     async def append_ai(self, think: str, output: dict):
         """追加 AI 消息"""
-        valid_calls = {"reply", "ask_user", "use_tool", "create_tool", "fix_tool", 
+        valid_calls = {"reply", "ask_user", "use_tool", "create_tool", "fix_tool",
                        "remove_tool", "query_plugin", "aicp_chat", "add_experience"}
         if output.get("call") not in valid_calls:
             return
@@ -642,39 +642,39 @@ class LLMOutputParser:
             self._parse_fallback,
         ]
         self._max_extract_len = 150000
-        
+
         # 有效的 call 值
         self._valid_calls = {
             "use_tool", "reply"
         }
     def _check_missing_content_block(self, result: dict) -> str:
         """检测哪些工具需要 @@CONTENT@@ 块但缺失。
-        
+
         返回非空字符串表示缺失，字符串内容是工具描述。
         返回空字符串表示不需要块或块已存在。
-        
+
         判断依据：params 里完全没有对应字段（不是字段为空）。
         显式写 "content": "" 表示空内容，放行。
         """
         if result.get("call") != "use_tool":
             return ""
-        
+
         args = result.get("args", {})
         if not isinstance(args, dict):
             return ""
-        
+
         target = args.get("target", "")
         action = args.get("action", "")
         params = args.get("params", {})
         if not isinstance(params, dict):
             params = {}
-        
+
         # ★ 先取 mode，clear 模式不需要 content
         mode = params.get("mode", "")
         # ★ 也接受 action="clear" 的写法（LLM 可能把 clear 当 action）
         if action == "clear":
             mode = "clear"
-        
+
         if target == "builtins/tools/add_experience":
             if mode == "clear":
                 return ""  # clear 不需要 experience
@@ -695,7 +695,7 @@ class LLMOutputParser:
             if action in ("write_file", "append_file", "apply_patch"):
                 if "content" not in params:
                     return f"{action}（需要 content）"
-        
+
         return ""
 
     def parse(self, raw: str) -> dict:
@@ -704,7 +704,7 @@ class LLMOutputParser:
             return self._get_error_response("输入类型错误", "抱歉，处理过程中出现错误，请稍后重试")
 
         try:
-                    
+
             raw_stripped = raw.strip()
 
             if not raw_stripped:
@@ -865,29 +865,88 @@ class LLMOutputParser:
     # ============================================================
     # 新增：提取 @@CONTENT@@ 块
     # ============================================================
-    
-    def _extract_content_block(self, raw: str) -> tuple:
-        """提取 @@CONTENT@@ 块，支持不完整结束标记
 
-        空块返回 (None, raw)，不注入。
+    def _find_json_end(self, raw: str) -> int:
+        """找第一个完整 JSON 对象的结束位置（} 的下标 + 1）。
+        跳过字符串内的 {}，找不到返回 -1。
         """
-        import re
-        pattern = r'@@CONTENT@@\s*\n?(.*?)(?:@@END_CONTENT@@|$)'
-        match = re.search(pattern, raw, re.DOTALL)
-        if match:
-            content = match.group(1).strip()
-            if not content:
-                # ★ 空块不返回，直接当没有
-                Logger.debug("@@CONTENT@@ 块为空，忽略")
-                return None, raw
-            cleaned = raw[:match.start()] + raw[match.end():]
-            return content, cleaned
-        return None, raw
+        start = raw.find('{')
+        if start == -1:
+            return -1
+
+        depth = 0
+        in_string = False
+        escape = False
+
+        for i in range(start, len(raw)):
+            ch = raw[i]
+            if escape:
+                escape = False
+                continue
+            if ch == '\\':
+                escape = True
+                continue
+            if ch == '"':
+                in_string = not in_string
+                continue
+            if in_string:
+                continue
+            if ch == '{':
+                depth += 1
+            elif ch == '}':
+                depth -= 1
+                if depth == 0:
+                    return i + 1
+
+        return -1
+
+    def _extract_content_block(self, raw: str) -> tuple:
+        """提取 @@CONTENT@@ 块。
+
+        关键：跳过 JSON 内部的 @@CONTENT@@（think 字段里可能提到），
+        只找 JSON 结束后的第一个 @@CONTENT@@。
+        """
+        start_marker = "@@CONTENT@@"
+        end_marker = "@@END_CONTENT@@"
+
+        # 1. 先找 JSON 的结束位置
+        json_end = self._find_json_end(raw)
+
+        # 2. 从 json_end 之后找 @@CONTENT@@
+        if json_end == -1:
+            last_brace = raw.rfind("}")
+            search_from = last_brace + 1 if last_brace != -1 else 0
+        else:
+            search_from = json_end
+
+        start_idx = raw.find(start_marker, search_from)
+        if start_idx == -1:
+            return None, raw
+
+        # 3. 找起始标记后的第一个换行
+        content_start = raw.find("\n", start_idx)
+        if content_start == -1:
+            return None, raw
+        content_start += 1
+
+        # 4. 找结束标记
+        end_idx = raw.find(end_marker, content_start)
+        if end_idx == -1:
+            content = raw[content_start:].strip()
+            cleaned = raw[:start_idx].rstrip()
+        else:
+            content = raw[content_start:end_idx].strip()
+            cleaned = raw[:start_idx].rstrip() + raw[end_idx + len(end_marker):]
+
+        if not content:
+            return None, raw
+
+        return content, cleaned
 
     # ============================================================
     # 新增：查找并解析 JSON
     # ============================================================
-    
+
     def _find_and_parse_json(self, raw: str) -> tuple:
         """只取第一个 { ... }，不扫描后续。
 
@@ -959,12 +1018,12 @@ class LLMOutputParser:
     @staticmethod
     def _unwrap_code_block(raw: str) -> str:
         """剥离 ```json ... ``` / ``` ... ``` 代码块包裹
-        
+
         优先提取 ```json 块；如果没有，再试普通 ``` 块。
         代码块外面的文本保留，供后续扫描。
         """
         import re
-        
+
         # 优先 ```json ... ```
         m = re.search(r'```json\s*\n?(.*?)\n?```', raw, re.DOTALL)
         if m:
@@ -973,7 +1032,7 @@ class LLMOutputParser:
             after = raw[m.end():].strip()
             parts = [p for p in (before, inner, after) if p]
             return "\n".join(parts)
-        
+
         # 再试普通 ``` ... ```
         m = re.search(r'```\s*\n?(.*?)\n?```', raw, re.DOTALL)
         if m:
@@ -982,7 +1041,7 @@ class LLMOutputParser:
             after = raw[m.end():].strip()
             parts = [p for p in (before, inner, after) if p]
             return "\n".join(parts)
-        
+
         return raw
 
 
@@ -999,24 +1058,24 @@ class LLMOutputParser:
     # ============================================================
     # 新增：归一化 call 字段
     # ============================================================
-    
+
     def _normalize_call_field(self, result: dict) -> str:
         """归一化 call 字段，返回标准 call 值"""
         if not isinstance(result, dict):
             return None
-        
+
         # 大小写不敏感查找 call 字段
         call_val = None
         for key in ("call", "Call", "CALL"):
             if key in result:
                 call_val = result.pop(key)
                 break
-        
+
         if call_val:
             call_lower = str(call_val).lower()
             if call_lower in self._valid_calls:
                 return call_lower
-        
+
         # 没有 call 字段，尝试推断
         args = result.get("args", {})
         if isinstance(args, dict):
@@ -1024,7 +1083,7 @@ class LLMOutputParser:
             if args.get("target"):
                 Logger.warn(f"缺少 call 字段，但有 args.target={args.get('target')}，自动补全为 use_tool")
                 return "use_tool"
-        
+
         # 有顶层 target → use_tool
         if "target" in result:
             Logger.warn("缺少 call 字段，但有顶层 target，自动补全为 use_tool")
@@ -1037,18 +1096,18 @@ class LLMOutputParser:
             if "params" in result:
                 result["args"]["params"] = result.pop("params")
             return "use_tool"
-        
+
         # 有 content 且字段少 → reply
         if "content" in result and len(result.keys()) <= 3:
             Logger.warn("缺少 call 字段，但有 content，自动补全为 reply")
             return "reply"
-        
+
         return None
 
     # ============================================================
     # 新增：注入 content 块
     # ============================================================
-    
+
     def _inject_content_block(self, result: dict, content_block: str):
         """注入 content 块到正确位置（按 target/action 映射字段名）"""
         call = result.get("call", "")
@@ -1109,20 +1168,20 @@ class LLMOutputParser:
         """统计 raw 中有多少个完整的、包含 call/think/args 任一字段的 JSON 对象"""
         if not raw:
             return 0
-        
+
         count = 0
         i = 0
-        
+
         while i < len(raw):
             start = raw.find('{', i)
             if start == -1:
                 break
-            
+
             depth = 0
             in_string = False
             escape = False
             end = -1
-            
+
             for j in range(start, len(raw)):
                 ch = raw[j]
                 if escape:
@@ -1143,7 +1202,7 @@ class LLMOutputParser:
                     if depth == 0:
                         end = j
                         break
-            
+
             if end != -1:
                 try:
                     obj = json.loads(raw[start:end+1])
@@ -1155,7 +1214,7 @@ class LLMOutputParser:
                 i = end + 1
             else:
                 break
-        
+
         return count
 
     def _extract_outer_json_and_content(self, raw: str):
@@ -1198,7 +1257,7 @@ class LLMOutputParser:
                 json_end = content_pos - 1
             else:
                 json_end = len(raw) - 1
-            
+
             while json_end > start and raw[json_end] in ' \t\n\r':
                 json_end -= 1
 
@@ -1264,7 +1323,7 @@ class LLMOutputParser:
     @staticmethod
     def _build_closing_suffix(s: str) -> str:
         """扫描字符串，构建需要补的闭合符后缀
-        
+
         用栈处理嵌套，按弹出顺序生成闭合符：
         如果栈里剩 [{，则补 }]（先闭后开的）；
         如果栈里剩 {[，则补 ]}。
@@ -1551,8 +1610,8 @@ class LLMOutputParser:
 class LLMThinker:
     def __init__(self):
         self.parser = LLMOutputParser()
-    
-    
+
+
     async def think(self, agent, flow: InformationFlow, session_id: str, depth: int = 0) -> dict:
         llm = agent.llm
         if not llm:
@@ -1590,7 +1649,7 @@ class LLMThinker:
                     interrupted = True
                     interrupted_reason = "单次调用超时"
                     try:
-                        await _push_error(agent, session_id, f"⚠️ 生成超时（{MAX_STREAM_TIME}s），已中断，正在重试...")
+                        await _push_progress(agent, session_id, "error", f"⚠️ 生成超时（{MAX_STREAM_TIME}s），已中断，正在重试...")
                     except Exception:
                         pass
                     break
@@ -1603,7 +1662,7 @@ class LLMThinker:
                         interrupted = True
                         interrupted_reason = "think 字段过长"
                         try:
-                            await _push_error(agent, session_id, "⚠️ think 字段过长，已中断，正在重试...")
+                            await _push_progress(agent, session_id, "error", "⚠️ think 字段过长，已中断，正在重试...")
                         except Exception:
                             pass
                         break
@@ -1613,13 +1672,12 @@ class LLMThinker:
                 before_content = raw.split("@@CONTENT@@")[0]
 
                 # 第一层（早）：检测 } 后紧跟 { 的模式（每 token 都查，最敏感）
-                # 匹配 "}{", "} {", "}\n{", "}\n\n{" 等
                 if re.search(r'}\s*\{', before_content):
                     Logger.warn("检测到相邻的 JSON 对象（} 后紧跟 {），中断生成")
                     interrupted = True
                     interrupted_reason = "检测到多个 JSON 对象"
                     try:
-                        await _push_error(agent, session_id, "⚠️ 检测到异常输出（多个 JSON），已中断，正在重试...")
+                        await _push_progress(agent, session_id, "error", "⚠️ 检测到异常输出（多个 JSON），已中断，正在重试...")
                     except Exception:
                         pass
                     break
@@ -1634,7 +1692,7 @@ class LLMThinker:
                             interrupted = True
                             interrupted_reason = "检测到多个 JSON 对象"
                             try:
-                                await _push_error(agent, session_id, f"⚠️ 检测到异常输出（{json_count} 个 JSON），已中断，正在重试...")
+                                await _push_progress(agent, session_id, "error", f"⚠️ 检测到异常输出（{json_count} 个 JSON），已中断，正在重试...")
                             except Exception:
                                 pass
                             break
@@ -1678,8 +1736,8 @@ class LLMThinker:
 
         return result
 
-     
-        
+
+
 
 
 # ============================================================
@@ -1754,7 +1812,7 @@ class ActionRegistry:
                 )
             }
         call_id = str(uuid.uuid4())[:8]
-        retain = args.pop("_retain", 3) 
+        retain = args.pop("_retain", 3)
         await flow.append_system(
             action="call_start",
             result_think=f"📤 调用工具: {target}",
@@ -1973,7 +2031,9 @@ class CoreProcessor:
 
         output = await self.thinker.think(agent, flow, session_id, depth)
 
+        # ============================================================
         # ★ 统一处理重试（_retry 标记）
+        # ============================================================
         if output.get("call") == "_retry":
             reason = output.get("_validation_reason", "格式错误")
 
@@ -2021,7 +2081,7 @@ class CoreProcessor:
                     "请重新输出完整合法的 JSON，或直接输出纯文本回复用户。"
                 )
 
-            elif "单行 patch" in reason:          # ★ 新增
+            elif "单行 patch" in reason:
                 error_msg = (
                     "❌ 你上一轮把多行 patch 压缩成了一行，系统无法解析。\n\n"
                     "【规则】@@CONTENT@@ 块内必须保留换行，每行独立。\n"
@@ -2051,9 +2111,15 @@ class CoreProcessor:
                 extra={"full_result": error_msg},
                 retain=5
             )
+
+            # ★ 推到前端
+            await _push_progress(agent, session_id, "error", f"⚠️ 格式错误，重试中: {reason[:80]}")
+
             return await self._process_internal(agent, session_id, flow, depth + 1)
 
+        # ============================================================
         # ★ FastValidator 校验
+        # ============================================================
         output = FastValidator.validate(output)
 
         # ★ 处理 FastValidator 的校验失败
@@ -2070,8 +2136,15 @@ class CoreProcessor:
                 extra={"full_result": error_msg},
                 retain=5
             )
+
+            # ★ 推到前端
+            await _push_progress(agent, session_id, "error", f"⚠️ 校验失败，重试中: {reason[:80]}")
+
             return await self._process_internal(agent, session_id, flow, depth + 1)
 
+        # ============================================================
+        # ★ 正常流程
+        # ============================================================
         think = output.get("think", "")
         call = output.get("call", "reply")
         content = output.get("content", "")
@@ -2085,7 +2158,7 @@ class CoreProcessor:
             "call": call,
             "content": content,
             "args": args,
-            "retain": retain      # ★ 传进去
+            "retain": retain
         })
 
         # ★★★ 直接回复 ★★★
@@ -2100,13 +2173,14 @@ class CoreProcessor:
                 "content": content,
                 "args": {}
             }
+
         retain = output.get("retain", 3)
         args["_retain"] = retain
-        
+
         # ★★★ use_tool 处理 ★★★
         if call == "use_tool":
             target = args.get("target")
-            # retain = args.pop("_retain", 3) if isinstance(args, dict) else 3
+
             # reply 直接返回
             if target == "builtins/agents/main_agent/reply":
                 content = args.get("params", {}).get("content", "")
@@ -2120,14 +2194,14 @@ class CoreProcessor:
                     "content": content,
                     "args": {}
                 }
-            
+
             # ★★★ 执行工具 ★★★
             result = await self.actions.execute(call, agent, args, session_id, flow)
 
             # ★★★ 异步调用：记录 processing，继续递归让 LLM 看到 ★★★
             if result.get("data", {}).get("status") == "processing":
                 trace_id = result.get("data", {}).get("trace_id", "")
-                
+
                 # 找到 call_start，更新 trace_id 和状态
                 for entry in reversed(flow._flow):
                     if entry.get("from") == "system" and entry.get("action") == "call_start":
@@ -2136,7 +2210,7 @@ class CoreProcessor:
                             entry["detail"]["status"] = "processing"
                             await flow._save_locked()
                             break
-                
+
                 # ★★★ 写入 processing 系统消息 ★★★
                 await flow.append_system(
                     action="async_processing",
@@ -2147,9 +2221,9 @@ class CoreProcessor:
                     },
                     retain=3
                 )
-                
+
                 await _push_chat(agent, session_id, "⏳ 任务已提交，正在后台处理...")
-                
+
                 # ★★★ 继续递归，让 LLM 看到 processing，主动 reply 用户 ★★★
                 return await self._process_internal(agent, session_id, flow, depth + 1)
 
@@ -2212,20 +2286,20 @@ class CoreProcessor:
             Logger.error(f"[DEBUG] append_system 失败: {e}")
             import traceback
             traceback.print_exc()
-        
+
         Logger.info(f"[DEBUG] use_tool 完成，准备进入第 {depth + 1} 轮")
         return await self._process_internal(agent, session_id, flow, depth + 1)
 
     async def _handle_async_action(self, agent, session_id, flow, call, args, depth):
         tool_name = args.get("name", args.get("target", "工具"))
         reply_msg = f"收到！正在后台处理「{tool_name}」，完成后会通知你。"
-        
+
         async_task_manager.submit(
             session_id,
             self._execute_async_and_continue(agent, session_id, flow, call, args, depth)
         )
         await _push_progress(agent, session_id, "executing", f"⚡ 正在后台{call}...")
-        
+
         return {
             "ok": True,
             "waiting": False,

@@ -15,6 +15,9 @@ plugins_dir: plugins
 websocket:
   external_url: ws://127.0.0.1:9001/ws
 
+upload:
+  external_url: http://127.0.0.1:9002/upload
+
 # ---------- 认证 ----------
 enable_auth: false
 
@@ -22,24 +25,20 @@ enable_auth: false
 tokens:
   - 你的token
 
-# Studio token（用于web_studio页面，可选）
+# Studio token（可选）
 studio_token: 你的token
 
 # 主会话 ID（webhook、回调、定时任务都会唤醒这个 session）
 session_id: 你的session_id=你的访问主token
 
-# 可视化配置   开启后可以主控屏幕visualzer监控生效
-visualization:
-  enabled: true
-  channel: pa_visualizer
-  queue_size: 1000
+
 
 # ---------- 模型配置 ----------
 models:
   roles:
-    default: 你的默认模型--对应providers里具体的models id
-    coding: 你的编码模型 不配置默认default
-    reasoning: 你的推理模型 不配置默认 default
+    default: 你的默认模型
+    coding: 你的编码模型
+    reasoning: 你的推理模型
   max_retries: 3
   request_timeout: 90
   stream_timeout: 300
@@ -48,20 +47,17 @@ models:
     # 你的模型提供商配置
     openai:
       base_url: https://你的提供商地址/v1
-      api_key: 你的API Key，支持环境变量 ${AGGREGATOR_API_KEY}和明文
+      api_key: 你的API Key
       models:
         - id: 你的模型ID
-          max_tokens: 8192
+          max_tokens: 32768
           temperature: 0.1
-    aggregator:  # 支持聚合模型，一个key，对应多个模型，
-      base_url: https://api.llm-token.cn/v1
-      api_key: ${AGGREGATOR_API_KEY}
-      models:
-      - id: claude-sonnet-4-6
-        max_tokens: 8192
-        temperature: 0.1
-      - id: doubao-seed-2.0-code
-        max_tokens: 8192
-        temperature: 0.1
-      - id: MiniMax-M3
-        max_tokens: 8192
+
+# ---------- Gitee 自举管理（可选）----------
+gitee:
+  access_token: 你的Gitee私人令牌
+  owner: 你的Gitee用户名
+  repo: 你的仓库名
+  branch: main
+  webhook_secret: 你的webhook密码
+  session_id: 你的session_id=你的访问主token

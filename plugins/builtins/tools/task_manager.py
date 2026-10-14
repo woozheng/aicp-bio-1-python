@@ -383,13 +383,34 @@ async def _handle_collect(agent, args, session_id, flow):
 
 async def _handle_clear(agent, args, session_id, flow):
     tasks = _load_tasks(session_id)
-    kept = {tid: t for tid, t in tasks.items() if t.get("status") == "running"}
+    kept = {tid: t for tid, t in tasks.items() if t.get("status") in ("pending", "running")}
     removed = len(tasks) - len(kept)
     _save_tasks(session_id, kept)
+
+    # ★ 推送，让前端刷新
+    try:
+        await agent.system.call(core.Envelop(
+            sender="builtins/tools/task_manager",
+            receiver="os/_websocket",
+            payload={
+                "action": "push",
+                "channel_id": f"pa_{session_id}",
+                "data": {
+                    "type": "progress",
+                    "step": "done",
+                    "msg": f"清理分身任务：{removed} 个",
+                    "agent_type": "task_manager"
+                }
+            }
+        ))
+    except Exception:
+        pass
+
     return {
         "ok": True,
         "think": f"已清空 {removed} 个已结束任务",
         "data": {"removed": removed, "kept": len(kept)},
+        "_summary": _format_summary(session_id),
     }
 
 

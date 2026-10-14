@@ -100,7 +100,7 @@ def _parse_patch(patch: str):
             continue
 
         # hunk 头
-        hunk_match = re.match(r'^@@ -\d+,\d+ \+\d+,\d+ @@', line)
+        hunk_match = re.match(r'^@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@', line)
         if hunk_match:
             if current is not None:
                 _push_hunk(hunks, current)
