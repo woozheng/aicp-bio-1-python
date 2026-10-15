@@ -274,8 +274,98 @@ def _format_group_summary(groups: dict, total: int) -> str:
                 lines.append(f"      - ... 还有 {info['more']} 个")
 
     return "\n".join(lines)
+def _tokenize(query):
+    """拆词：按非中英文数字的符号拆，保留 _ 和 -"""
+    if not query:
+        return []
+    tokens = re.split(r'[^\u4e00-\u9fffa-zA-Z0-9_-]+', query.strip())
+    return [t.lower() for t in tokens if t]
+def _term_search(terms, plugin_names, limit=10, mode="any"):
+    """
+    按词列表搜索。mode=any 任一命中 | mode=all 全部命中
 
+    返回每条的：
+      - name: 插件名
+      - desc: 完整描述
+      - score: 匹配分
+      - matched_terms: 命中的词
+      - match_detail: 每个词匹配在哪（name / desc）
+      - desc_matched: 命中的词在描述里的"片段"（前后各 20 字）
+    """
+    if not terms:
+        return []
 
+    # 统一小写，去空白
+    terms = [t.lower().strip() for t in terms if t and t.strip()]
+    if not terms:
+        return []
+
+    results = []
+    for name in plugin_names:
+        desc = _extract_desc(name)
+        name_lower = name.lower()
+        desc_lower = desc.lower()
+
+        score = 0
+        matched_terms = []
+        match_detail = {}
+        desc_matched = []
+
+        for term in terms:
+            term_score = 0
+            matched_in = []
+
+            if term in name_lower:
+                term_score += 10
+                matched_in.append("name")
+            if term in desc_lower:
+                term_score += 5
+                matched_in.append("desc")
+                # ★ 提取描述里的命中片段
+                idx = desc_lower.find(term)
+                if idx >= 0:
+                    start = max(0, idx - 20)
+                    end = min(len(desc), idx + len(term) + 20)
+                    snippet = desc[start:end]
+                    if start > 0:
+                        snippet = "…" + snippet
+                    if end < len(desc):
+                        snippet = snippet + "…"
+                    desc_matched.append({
+                        "term": term,
+                        "snippet": snippet,
+                    })
+
+            if term_score > 0:
+                score += term_score
+                matched_terms.append(term)
+                match_detail[term] = matched_in
+
+        # 模式判断
+        if mode == "all":
+            if len(matched_terms) < len(terms):
+                continue
+        else:  # any
+            if not matched_terms:
+                continue
+
+        # 加分：描述非空
+        if desc:
+            score += 2
+        # 加分：命中的词越多越好
+        score += len(matched_terms) * 3
+
+        results.append({
+            "name": name,
+            "desc": desc,
+            "score": score,
+            "matched_terms": matched_terms,
+            "match_detail": match_detail,
+            "desc_matched": desc_matched,    # 描述里的命中片段
+        })
+
+    results.sort(key=lambda x: x["score"], reverse=True)
+    return results[:limit]
 # ============================================================
 # 主入口
 # ============================================================
@@ -320,6 +410,31 @@ async def execute(envelop, agent):
             },
         }
         return envelop
+    elif action == "search":
+            # ★ 支持两种输入：terms（列表）或 query（字符串）
+            terms = envelop.payload.get("terms")
+            if not terms:
+                # 兼容旧接口：query 字符串，用 _tokenize 拆
+                query = envelop.payload.get("query", "").strip()
+                terms = _tokenize(query)
+
+            if not terms:
+                envelop.payload = {"ok": False, "error": "缺少 terms 或 query 参数"}
+                return envelop
+
+            limit = envelop.payload.get("limit", 10)
+            mode = envelop.payload.get("mode", "any")  # any | all
+
+            plugin_names = await _get_plugin_names(agent)
+            results = _term_search(terms, plugin_names, limit, mode)
+
+            envelop.payload = {
+                "ok": True,
+                "terms": terms,
+                "results": results,
+                "total": len(results),
+            }
+            return envelop
 
     # ============================================================
     # list_plugins：一次返回分组 + 插件名 + 描述
@@ -380,20 +495,24 @@ async def execute(envelop, agent):
 def help() -> dict:
     return {
         "route": "builtins/agents/cogitor",
-        "description": "系统概览 — 分组+描述，一次查询",
+        "description": "系统概览 — 分组+描述+搜索",
         "input": {
-            "action": "get_map | list_plugins",
-            "category": "（list_plugins 可选）分类名，如 builtins、os、applications",
+            "action": "get_map | list_plugins | search",
+            "category": "（list_plugins 可选）分类名",
+            "terms": "（search 可选）词列表，如 [\"股票\", \"stock\"]",
+            "query": "（search 可选）查询字符串，会按空格/标点拆词",
+            "limit": "（search 可选）返回数量，默认 10",
+            "mode": "（search 可选）any 任一命中 | all 全部命中，默认 any",
         },
         "output": {
             "ok": "是否成功",
             "summary": "系统概览文本（get_map）",
             "groups": "分组+插件名+描述（list_plugins 无参数）",
             "plugins": "完整插件列表（list_plugins 指定 category）",
+            "results": "搜索结果（search）",
         },
         "examples": [
-            'list_plugins → {"groups": {"builtins": {"plugins": [{"name": "builtins/tools/aicp_chat", "desc": "..."}]}}}',
-            'list_plugins category=builtins → {"plugins": [{"name": "builtins/tools/aicp_chat", "desc": "..."}]}',
-            'list_plugins category=applications → {"projects": {"task_board": {"count": 3, "desc": "..."}}}',
+            'search terms=["股票","stock"] → {"results": [{"name": "...", "desc": "...", "match_detail": {...}}]}',
+            'search query="股票 stock" → 同上（query 会被拆成 ["股票","stock"]）',
         ],
     }
