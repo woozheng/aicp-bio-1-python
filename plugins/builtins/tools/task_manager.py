@@ -2,12 +2,13 @@
 
 职责：
 - 创建分身任务（sub_ session）
+- 给已有分身发送消息（续跑/改进）
 - 拼装所有 meta（session_id / callback_receiver / _task_id）
 - 接收回调，匹配 task_id，更新状态
 - 提供 list / status / collect 查询
 - 通知 main_agent 有新进展
 
-LLM 只传 description 和 task，其余全部由本模块处理。
+LLM 只传 description 和 task（或 task_id 和 message），其余全部由本模块处理。
 """
 
 import json
@@ -22,12 +23,20 @@ import core
 
 ACTIONS_SCHEMA = {
     "create": {
-        "description": "创建一个分身任务（异步执行）",
+        "description": "创建一个分身任务（自动分配 session，异步执行）",
         "params": {
             "description": {"type": "string", "description": "任务简述（用于列表展示）"},
             "task": {"type": "string", "description": "给分身的完整任务描述"}
         },
         "required": ["description", "task"]
+    },
+    "send": {
+        "description": "给已有分身发送消息（续跑/改进，保留分身的记忆）",
+        "params": {
+            "task_id": {"type": "string", "description": "任务 ID（sub_xxx）"},
+            "message": {"type": "string", "description": "要发送的消息"}
+        },
+        "required": ["task_id", "message"]
     },
     "list": {
         "description": "列出当前 session 的所有分身任务",
@@ -53,14 +62,29 @@ ACTIONS_SCHEMA = {
     "collect": {
         "description": "收集所有已完成任务的结果",
         "params": {
+            "task_id": {"type": "string", "description": "可选，指定单个任务 ID"},
             "wait": {"type": "boolean", "description": "是否等待未完成任务（默认 false）"},
             "timeout": {"type": "number", "description": "等待超时秒数（默认 60）"}
         },
         "required": []
     },
     "clear": {
-        "description": "清空已结束的任务记录",
+        "description": "批量清理所有已结束的分身（任务记录 + flow 文件）",
         "params": {},
+        "required": []
+    },
+    "delete": {
+        "description": "永久删除指定的分身（任务记录 + flow 文件）",
+        "params": {
+            "task_ids": {
+                "type": "array",
+                "description": "要删除的任务 ID 列表，如 [\"sub_a3f8b2c1\", \"sub_9e520e28\"]"
+            },
+            "task_id": {
+                "type": "string",
+                "description": "（可选）单个任务 ID，等价于 task_ids=[task_id]"
+            }
+        },
         "required": []
     }
 }
@@ -71,6 +95,7 @@ ACTIONS_SCHEMA = {
 # ============================================================
 
 TASKS_DIR = Path("data/memories/main_agent/tasks")
+FLOWS_BASE = Path("data/memories/main_agent/flows")
 MAX_CONCURRENT_TASKS = 5
 TASK_TIMEOUT_SECONDS = 600
 
@@ -158,6 +183,25 @@ def _format_summary(parent_session: str) -> str:
     return "\n".join(lines)
 
 
+def _delete_flow_files(task_ids: list) -> int:
+    """删除指定的 flow 文件，返回删除数量"""
+    deleted = 0
+    if not FLOWS_BASE.exists():
+        return 0
+    for date_dir in FLOWS_BASE.iterdir():
+        if not date_dir.is_dir():
+            continue
+        for tid in task_ids:
+            flow_file = date_dir / f"{tid}.json"
+            if flow_file.exists():
+                try:
+                    flow_file.unlink()
+                    deleted += 1
+                except Exception:
+                    pass
+    return deleted
+
+
 # ============================================================
 # action 处理器
 # ============================================================
@@ -176,6 +220,7 @@ async def _handle_create(agent, args, session_id, flow):
             "think": f"并发任务已达上限（{MAX_CONCURRENT_TASKS}）。请等现有任务完成，或用 task_manager.list 查看。"
         }
 
+    # ★ 自动分配 session_id
     task_id = f"sub_{uuid.uuid4().hex[:8]}"
 
     # 记录任务
@@ -226,6 +271,63 @@ async def _handle_create(agent, args, session_id, flow):
         "data": {
             "task_id": task_id,
             "description": description,
+            "status": "running",
+        },
+        "_summary": _format_summary(session_id),
+    }
+
+
+async def _handle_send(agent, args, session_id, flow):
+    """给已有分身发送消息（续跑/改进，保留分身的记忆）"""
+    task_id = args.get("task_id", "").strip()
+    message = args.get("message", "").strip()
+
+    if not task_id or not message:
+        return {"ok": False, "think": "缺少 task_id 或 message"}
+
+    tasks = _load_tasks(session_id)
+    t = tasks.get(task_id)
+    if not t:
+        return {"ok": False, "think": f"任务不存在: {task_id}"}
+
+    # ★ 状态改回 running（如果是 done/failed/timeout/cancelled）
+    _update_task(session_id, task_id, {
+        "status": "running",
+        "finished_at": None,
+        "error": None,
+    })
+
+    call_meta = {
+        "session_id": session_id,
+        "callback_receiver": "builtins/tools/task_manager",
+        "callback_session_id": session_id,
+        "_task_id": task_id,
+    }
+
+    try:
+        await agent.system.call(core.Envelop(
+            sender="builtins/tools/task_manager",
+            receiver="builtins/agents/main_agent",
+            payload={
+                "content": message,
+                "session_id": task_id,     # ★ 复用已有的 session
+                "action": "",
+            },
+            meta=call_meta,
+        ))
+    except Exception as e:
+        _update_task(session_id, task_id, {
+            "status": "failed",
+            "error": f"发送失败: {e}",
+            "finished_at": _now(),
+        })
+        return {"ok": False, "think": f"发送失败: {e}"}
+
+    return {
+        "ok": True,
+        "think": f"✅ 已发送到 {task_id}，分身将带着记忆继续",
+        "data": {
+            "task_id": task_id,
             "status": "running",
         },
         "_summary": _format_summary(session_id),
@@ -381,13 +483,23 @@ async def _handle_collect(agent, args, session_id, flow):
         "_summary": _format_summary(session_id),
     }
 
+
 async def _handle_clear(agent, args, session_id, flow):
+    """批量清理所有已结束的分身（任务记录 + flow 文件）"""
     tasks = _load_tasks(session_id)
+
+    # 保留 running / pending
     kept = {tid: t for tid, t in tasks.items() if t.get("status") in ("pending", "running")}
-    removed = len(tasks) - len(kept)
+    removed_tids = [tid for tid in tasks if tid not in kept]
+    removed = len(removed_tids)
+
+    # 保存精简后的 tasks
     _save_tasks(session_id, kept)
 
-    # ★ 推送，让前端刷新
+    # ★ 删除已结束分身的 flow 文件
+    deleted_flows = _delete_flow_files(removed_tids)
+
+    # 推送前端刷新
     try:
         await agent.system.call(core.Envelop(
             sender="builtins/tools/task_manager",
@@ -398,7 +510,7 @@ async def _handle_clear(agent, args, session_id, flow):
                 "data": {
                     "type": "progress",
                     "step": "done",
-                    "msg": f"清理分身任务：{removed} 个",
+                    "msg": f"清理分身：{removed} 个记录，{deleted_flows} 个 flow",
                     "agent_type": "task_manager"
                 }
             }
@@ -408,8 +520,86 @@ async def _handle_clear(agent, args, session_id, flow):
 
     return {
         "ok": True,
-        "think": f"已清空 {removed} 个已结束任务",
-        "data": {"removed": removed, "kept": len(kept)},
+        "think": f"已清空 {removed} 个已结束任务（含 {deleted_flows} 个 flow 文件）",
+        "data": {
+            "removed": removed,
+            "deleted_flows": deleted_flows,
+            "kept": len(kept),
+        },
+        "_summary": _format_summary(session_id),
+    }
+
+
+async def _handle_delete(agent, args, session_id, flow):
+    """删除指定的分身（任务记录 + flow 文件）"""
+    task_ids = args.get("task_ids", [])
+
+    # 兼容单个 task_id 传参
+    if not task_ids:
+        single = args.get("task_id", "").strip()
+        if single:
+            task_ids = [single]
+
+    if not task_ids:
+        return {"ok": False, "think": "缺少 task_ids 或 task_id"}
+
+    if not isinstance(task_ids, list):
+        task_ids = [task_ids]
+
+    tasks = _load_tasks(session_id)
+    deleted = []
+    skipped = []
+
+    for tid in task_ids:
+        tid = str(tid).strip()
+        if not tid:
+            continue
+
+        if tid not in tasks:
+            skipped.append({"task_id": tid, "reason": "不存在"})
+            continue
+
+        # 不能删"正在跑"的
+        if tasks[tid].get("status") == "running":
+            skipped.append({"task_id": tid, "reason": "正在运行，请先 cancel"})
+            continue
+
+        # ★ 删任务记录
+        del tasks[tid]
+        deleted.append(tid)
+
+    _save_tasks(session_id, tasks)
+
+    # ★ 删对应的 flow 文件
+    deleted_flows = _delete_flow_files(deleted)
+
+    # 推送前端刷新
+    try:
+        await agent.system.call(core.Envelop(
+            sender="builtins/tools/task_manager",
+            receiver="os/_websocket",
+            payload={
+                "action": "push",
+                "channel_id": f"pa_{session_id}",
+                "data": {
+                    "type": "progress",
+                    "step": "done",
+                    "msg": f"删除分身：{len(deleted)} 个记录，{deleted_flows} 个 flow",
+                    "agent_type": "task_manager"
+                }
+            }
+        ))
+    except Exception:
+        pass
+
+    return {
+        "ok": True,
+        "think": f"已删除 {len(deleted)} 个分身（含 {deleted_flows} 个 flow 文件）",
+        "data": {
+            "deleted": deleted,
+            "deleted_flows": deleted_flows,
+            "skipped": skipped,
+        },
         "_summary": _format_summary(session_id),
     }
 
@@ -489,11 +679,13 @@ async def execute(envelop, agent):
 
     handlers = {
         "create": _handle_create,
+        "send": _handle_send,
         "list": _handle_list,
         "status": _handle_status,
         "cancel": _handle_cancel,
         "collect": _handle_collect,
         "clear": _handle_clear,
+        "delete": _handle_delete,
     }
 
     handler = handlers.get(action)
@@ -522,20 +714,31 @@ async def execute(envelop, agent):
 def help():
     return {
         "route": "builtins/tools/task_manager",
-        "description": "分身任务管理器 —— 创建、追踪、收集并行子任务",
+        "description": "分身任务管理器 —— 创建、追踪、续跑、收集、清理并行子任务",
         "input": {
-            "action": "create | list | status | cancel | collect | clear",
+            "action": "create | send | list | status | cancel | collect | clear | delete",
             "description": "任务简述（create 时）",
             "task": "完整任务描述（create 时）",
-            "task_id": "任务 ID（status / cancel 时）",
+            "task_id": "任务 ID（send / status / cancel / delete 时）",
+            "message": "要发送的消息（send 时）",
+            "task_ids": "任务 ID 列表（delete 时，支持批量）",
             "status": "筛选状态（list 时）",
             "wait": "是否等待（collect 时）",
             "timeout": "等待超时秒数（collect 时）",
         },
         "output": {
             "ok": "是否成功",
+            "data.task_id": "任务 ID（create / send 时）",
             "data.tasks": "任务列表",
             "data.done": "已完成任务结果（collect 时）",
+            "data.deleted": "已删除的任务 ID（delete 时）",
             "message": "结果消息",
-        }
+        },
+        "examples": [
+            'create(description="调研 A", task="详细调研 A 方向的三个子问题") → 自动分配 sub_xxx',
+            'send(task_id="sub_xxx", message="把 X 部分重做，用 Y 角度") → 分身带着记忆继续',
+            'collect() → {"done": {...}, "running": {...}, "failed": {...}}',
+            'delete(task_ids=["sub_a3f8b2c1", "sub_9e520e28"]) → 精确删除多个分身',
+            'clear() → 批量清理所有已结束的分身（含 flow 文件）',
+        ],
     }
